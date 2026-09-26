@@ -2,6 +2,7 @@ import { ObjectId, type Db } from "mongodb";
 import type { Images } from "./image";
 
 export interface UserExchangeFields {
+  image?: string | null;
   bio?: string; zipCode?: string; countryCode?: string;
   /** Average of received reviews; 0 means no reviews yet. */
   rating: number;
@@ -19,9 +20,12 @@ export interface Service {
   /** GridFS image IDs (see lib/gridfs.ts); services created before images have none. */
   images?: Images;
 }
+/** Added details are optional for bookings created before full snapshots. */
+export type ServiceSnapshot = Pick<Service, "title" | "description" | "pricingType" | "creditRate">
+  & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images">>;
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;
-  serviceSnapshot: Pick<Service, "title" | "description" | "pricingType" | "creditRate">;
+  serviceSnapshot: ServiceSnapshot;
   durationMinutes?: number; totalCredits: number; scheduledAt?: Date;
   status: "requested" | "accepted" | "awaiting_confirmation" | "completed" | "declined" | "cancelled";
   providerCompletedAt?: Date; requesterConfirmedAt?: Date; createdAt: Date; updatedAt: Date;
@@ -48,6 +52,8 @@ export async function ensureExchangeIndexes(db: Db) {
     c.transactions.createIndex({ idempotencyKey: 1 }, { unique: true }),
     c.transactions.createIndex({ accountId: 1, createdAt: -1 }),
     c.reviews.createIndex({ subjectUserId: 1, createdAt: 1 }),
+    c.reviews.createIndex({ subjectUserId: 1, createdAt: -1, _id: -1 }),
+    c.bookings.createIndex({ requesterId: 1, status: 1, scheduledAt: 1, _id: 1 }),
     c.reviews.createIndex({ bookingId: 1, authorId: 1 }, { unique: true }),
   ]);
 }

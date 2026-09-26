@@ -1,4 +1,6 @@
 import { ObjectId, WithId, type Db } from "mongodb";
+import { snapshotService, validateScheduledAt } from "./booking-snapshot";
+import { calculateCredits } from "./exchange-service";
 import {
   exchangeCollections,
   type Genre,
@@ -128,19 +130,8 @@ export async function addBooking(
     throw new Error("Service not found");
   }
 
-  let totalCredits = service.creditRate;
-
-  if (service.pricingType === "hourly") {
-    if (!data.durationMinutes) {
-      throw new Error(
-        "durationMinutes is required for hourly services"
-      );
-    }
-
-    totalCredits = Math.ceil(
-      service.creditRate * (data.durationMinutes / 60)
-    );
-  }
+  validateScheduledAt(data.scheduledAt);
+  const totalCredits = calculateCredits(service.pricingType, service.creditRate, data.durationMinutes);
 
   const now = new Date();
 
@@ -153,14 +144,8 @@ export async function addBooking(
 
     // Save the current service information so later edits to
     // the service don't change the historical booking.
-    serviceSnapshot: {
-      title: service.title,
-      description: service.description,
-      pricingType: service.pricingType,
-      creditRate: service.creditRate,
-    },
-
-    durationMinutes: data.durationMinutes,
+    serviceSnapshot: snapshotService(service),
+    ...(service.pricingType === "hourly" ? { durationMinutes: data.durationMinutes } : {}),
     totalCredits,
     scheduledAt: data.scheduledAt,
 

@@ -1,3 +1,4 @@
+import { addBooking } from "../lib/exchange-actions";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
@@ -163,4 +164,33 @@ test("grantWelcome refuses a caller session that is not in a transaction", async
   try {
     await assert.rejects(domain.grantWelcome(requester, session), /active transaction/);
   } finally { await session.endSession(); }
+});
+
+test("listings retain validated image IDs and bookings preserve full snapshots", async () => {
+  const { domain, c, provider, requester, input } = await fixture(100);
+  const images = [new ObjectId(), new ObjectId()];
+  const service = await domain.createService(provider, { ...input, creditRate: 100, images });
+  assert.deepEqual((await c.services.findOne({ _id: service._id }))?.images, images);
+  await assert.rejects(domain.createService(provider, { ...input, images: ["invalid" as unknown as ObjectId] }), /GridFS ObjectIds/);
+  const scheduledAt = new Date("2030-01-02T14:00:00Z");
+  const booking = await domain.requestBooking(requester, service._id, { scheduledAt });
+  assert.deepEqual(booking.serviceSnapshot, { title: service.title, description: service.description, pricingType: "fixed", creditRate: 100, genreId: service.genreId, deliveryMode: "in_person", zipCode: "00123", countryCode: "US", images });
+  await c.services.updateOne({ _id: service._id }, { $set: { images: [], deliveryMode: "remote", zipCode: "99999", creditRate: 500, description: "Changed" } });
+  assert.deepEqual((await c.bookings.findOne({ _id: booking._id }))?.serviceSnapshot, booking.serviceSnapshot);
+  assert.equal(booking.scheduledAt?.toISOString(), scheduledAt.toISOString());
+});
+
+test("both booking paths share rounding, snapshots, and optional schedule validation", async () => {
+  const { domain, provider, requester, input } = await fixture();
+  const service = await domain.createService(provider, { ...input, creditRate: 100, pricingType: "hourly" });
+  const options = { durationMinutes: 2 };
+  const booking = await domain.requestBooking(requester, service._id, options);
+  const lowLevel = await addBooking(db, { serviceId: service._id, requesterId: requester, ...options });
+  assert.equal(booking.totalCredits, 3); assert.equal(lowLevel.totalCredits, 3);
+  assert.deepEqual(lowLevel.serviceSnapshot, booking.serviceSnapshot);
+  assert.equal(booking.scheduledAt, undefined);
+  for (const scheduledAt of [new Date(NaN), "2030-01-01" as unknown as Date]) {
+    await assert.rejects(domain.requestBooking(requester, service._id, { ...options, scheduledAt }), /Invalid scheduled date/);
+    await assert.rejects(addBooking(db, { serviceId: service._id, requesterId: requester, ...options, scheduledAt }), /Invalid scheduled date/);
+  }
 });

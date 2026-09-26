@@ -7,7 +7,7 @@
 | `user` | Existing authentication fields plus optional `bio`, `zipCode`, `countryCode`; server-managed `rating`, `numberOfReviews`, and `reviews`. |
 | `genre` | Name, unique slug, description, active flag. Categories are managed server-side. |
 | `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, status, timestamps. |
-| `booking` | Service and participants, immutable description/pricing snapshot, agreed duration/total, optional schedule, status and completion timestamps. |
+| `booking` | Service and participants, immutable category, description, delivery/location, image-ID and pricing snapshot, agreed duration/total, optional schedule, status and completion timestamps. |
 | `creditAccount` | One account per user; available and held balances. |
 | `creditTransaction` | Append-only balance deltas, account/booking references, operation type, unique idempotency key, creation time. |
 | `review` | Completed booking, author, other participant, rating from 1–5, comment. One per author per booking. |
@@ -42,7 +42,7 @@ Every new session (registration or sign-in) grants missing welcome credits to co
 
 **Before exposing booking or review endpoints:** welcome credits currently go to accounts whose email and phone are unverified, so scripted sign-ups could farm credits and reviews. Add verification or another abuse control first. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
-Genres must be inserted by a trusted server/admin process before listings can be created; no categories are automatically seeded. Photos, messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
+Genres must be inserted by a trusted server/admin process before listings can be created; the profile fixture script creates its own clearly labeled demo categories. Messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
 
 ## Verification
 

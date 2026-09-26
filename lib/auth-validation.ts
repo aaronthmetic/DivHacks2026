@@ -40,11 +40,14 @@ export function normalizeEmail(value: unknown): string {
 
 // API callers send international numbers; the UI supplies an explicit country.
 export function normalizePhone(value: unknown, country?: CountryCode): string {
-  if (typeof value !== "string" || value.length > 40 || (!country && !value.startsWith("+"))) {
+  if (typeof value !== "string") throw new InputError("Enter a valid phone number.");
+  const trimmed = value.trim();
+  if (trimmed.length > 40 || (!country && !trimmed.startsWith("+"))) {
     throw new InputError("Enter a valid phone number including its country code.");
   }
-  const phone = parsePhoneNumberFromString(value, { defaultCountry: country, extract: false });
-  if (!phone?.isValid() || phone.ext) throw new InputError("Enter a valid phone number without an extension.");
+  const phone = parsePhoneNumberFromString(trimmed, { defaultCountry: country, extract: false });
+  if (phone?.ext) throw new InputError("Enter a phone number without an extension.");
+  if (!phone?.isValid()) throw new InputError("Enter a valid phone number.");
   return phone.number;
 }
 

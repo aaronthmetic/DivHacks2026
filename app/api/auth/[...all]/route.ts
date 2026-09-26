@@ -1,14 +1,15 @@
 import { getAuth } from "@/lib/auth";
 import { handleAuthRequest } from "@/lib/auth-handler";
-import { apiError } from "@/lib/profile-service";
+import { authUnavailable, logAuthFailure } from "@/lib/auth-errors";
 
 export const runtime = "nodejs";
 
 async function handler(request: Request) {
   try {
     return await handleAuthRequest(request, await getAuth());
-  } catch {
-    return apiError(503, "UNAVAILABLE", "Authentication is temporarily unavailable. Please try again.");
+  } catch (error) {
+    logAuthFailure("Auth initialization", error);
+    return authUnavailable(request);
   }
 }
 

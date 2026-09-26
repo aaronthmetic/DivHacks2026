@@ -1,3 +1,4 @@
+import { authUnavailable, logAuthFailure } from "./auth-errors";
 import type { Auth } from "./auth-config";
 import { apiError } from "./profile-service";
 import { conflictMessage } from "./auth-validation";
@@ -16,11 +17,18 @@ export async function handleAuthRequest(request: Request, auth: Auth) {
       }
     }
     if (["/api/auth/sign-in/email", "/api/auth/sign-in/phone-number"].includes(path) && [400, 401, 403].includes(response.status)) {
-      return apiError(401, "INVALID_CREDENTIALS", "Invalid email, phone number, or password.");
+      const body = await response.clone().json().catch(() => null);
+      if (["INVALID_EMAIL_OR_PASSWORD", "INVALID_PHONE_NUMBER_OR_PASSWORD"].includes(body?.code)) {
+        return apiError(401, "INVALID_CREDENTIALS", "Invalid email, phone number, or password.");
+      }
     }
-    if (response.status >= 500) return apiError(503, "UNAVAILABLE", "Authentication is temporarily unavailable. Please try again.");
+    if (response.status >= 500) {
+      logAuthFailure("Auth endpoint returned a server error");
+      return authUnavailable(request);
+    }
     return response;
-  } catch {
-    return apiError(503, "UNAVAILABLE", "Authentication is temporarily unavailable. Please try again.");
+  } catch (error) {
+    logAuthFailure("Auth request", error);
+    return authUnavailable(request);
   }
 }

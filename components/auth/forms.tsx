@@ -47,6 +47,7 @@ export function AuthForm({ mode, googleEnabled, oauthError = false }: { mode: "l
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     setError(""); setBusy(true);
     const form = new FormData(event.currentTarget);
     try {
@@ -63,10 +64,12 @@ export function AuthForm({ mode, googleEnabled, oauthError = false }: { mode: "l
       router.replace("/profile"); router.refresh();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to connect. Please try again.");
-    } finally { setBusy(false); }
+      setBusy(false);
+    }
   }
 
   async function google() {
+    if (busy) return;
     setError(""); setBusy(true);
     try {
       const result = await api("/api/auth/sign-in/social", { provider: "google" });
@@ -80,7 +83,7 @@ export function AuthForm({ mode, googleEnabled, oauthError = false }: { mode: "l
 
   return <div className="space-y-5">
     <Message error={error} />
-    <form onSubmit={submit} className="space-y-4">
+    <form method="post" onSubmit={submit} className="space-y-4">
       <fieldset disabled={busy} className="space-y-4">
         {register ? <>
           <div className="grid gap-4 sm:grid-cols-2"><Field label="First name" name="firstName" autoComplete="given-name" maxLength={100} required /><Field label="Last name" name="lastName" autoComplete="family-name" maxLength={100} required /></div>
@@ -108,7 +111,9 @@ export function ProfileForm({ firstName, lastName, complete = false }: { firstNa
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setSaved(false);
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError(""); setSaved(false);
     const form = new FormData(event.currentTarget);
     try {
       await api(complete ? "/api/profile/complete" : "/api/profile", {
@@ -117,10 +122,10 @@ export function ProfileForm({ firstName, lastName, complete = false }: { firstNa
       }, complete ? "POST" : "PATCH");
       if (complete) router.replace("/profile");
       setSaved(true); router.refresh();
-    } catch (error) { setError(error instanceof Error ? error.message : "We could not save your profile."); }
-    finally { setBusy(false); }
+      if (!complete) setBusy(false);
+    } catch (error) { setError(error instanceof Error ? error.message : "We could not save your profile."); setBusy(false); }
   }
-  return <form onSubmit={submit} className="space-y-4">
+  return <form method="post" onSubmit={submit} className="space-y-4">
     <Message error={error} />
     {saved && <p role="status" className="text-sm">Your profile has been saved.</p>}
     <fieldset disabled={busy} className="space-y-4">
@@ -139,7 +144,6 @@ export function LogoutButton() {
   return <div className="space-y-3"><Message error={error} /><Button variant="outline" disabled={busy} onClick={async () => {
     setBusy(true); setError("");
     try { await api("/api/auth/sign-out", {}); router.replace("/login"); router.refresh(); }
-    catch { setError("We could not log you out. Please try again."); }
-    finally { setBusy(false); }
+    catch { setError("We could not log you out. Please try again."); setBusy(false); }
   }}>{busy ? "Logging out…" : "Log out"}</Button></div>;
 }

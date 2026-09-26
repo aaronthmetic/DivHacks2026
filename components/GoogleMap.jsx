@@ -1,9 +1,50 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import markerThing from "../public/images/markerTest.png"
 
+let mapsPromise;
+function loadGoogleMaps() {
+  if (!mapsPromise) {
+    mapsPromise = (async () => {
+      if (!window.google?.maps?.importLibrary) {
+        const response = await fetch("/api/api-key/googleMaps");
+        if (!response.ok) throw new Error("Maps configuration unavailable");
+        const { apiKey } = await response.json();
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          // loading=async requires the API callback, not the script load event.
+          window.__divhacksMapsReady = () => {
+            delete window.__divhacksMapsReady;
+            resolve();
+          };
+          const params = new URLSearchParams({
+            key: apiKey,
+            loading: "async",
+            callback: "__divhacksMapsReady",
+            v: "weekly",
+          });
+          script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
+          script.async = true;
+          script.addEventListener("error", () => {
+            delete window.__divhacksMapsReady;
+            script.remove();
+            reject(new Error("Maps script failed to load"));
+          }, { once: true });
+          document.head.appendChild(script);
+        });
+      }
+      await Promise.all([
+        window.google.maps.importLibrary("maps"),
+        window.google.maps.importLibrary("marker"),
+      ]);
+    })().catch((error) => { mapsPromise = undefined; throw error; });
+  }
+  return mapsPromise;
+}
+
 export default function GoogleMap() {
+  const [failed, setFailed] = useState(false);
   const mapRef = useRef(null);
   const googleMapRef = useRef(null);
   const markersRef = useRef([]);
@@ -21,7 +62,7 @@ export default function GoogleMap() {
   lat,
   lng,
   title = "",
-  iconUrl = "/markers/default-marker.png",
+  iconUrl = markerThing.src,
   imageUrls = []
 ) {
   if (!googleMapRef.current || !window.google?.maps) {
@@ -29,17 +70,19 @@ export default function GoogleMap() {
     return;
   }
 
-  const marker = new window.google.maps.Marker({
+  const icon = document.createElement("img");
+  icon.src = iconUrl;
+  icon.alt = "";
+  icon.width = 40;
+  icon.height = 40;
+  icon.style.objectFit = "contain";
+  const marker = new window.google.maps.marker.AdvancedMarkerElement({
     position: { lat, lng },
     map: googleMapRef.current,
     title,
-
-    icon: {
-      url: iconUrl,
-      scaledSize: new window.google.maps.Size(40, 40),
-      anchor: new window.google.maps.Point(20, 40),
-    },
+    gmpClickable: true,
   });
+  marker.append(icon);
 
   // Each marker gets a unique ID so multiple galleries can exist.
   const galleryId =
@@ -214,7 +257,7 @@ export default function GoogleMap() {
     };
   });
 
-  marker.addListener("click", () => {
+  marker.addEventListener("gmp-click", () => {
     infoWindow.open({
       anchor: marker,
       map: googleMapRef.current,
@@ -227,41 +270,22 @@ export default function GoogleMap() {
 }
 
   useEffect(() => {
-    async function getApiKey(service) {
-  const response = await fetch(`/api/api-key/${service}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to retrieve API key for ${service}`);
-  }
-
-  const data = await response.json();
-
-  return data.apiKey;
-}
-    async function loadMap() {
-  try {
-    const apiKey = await getApiKey("googleMaps");
-
-    if (window.google?.maps) {
-      initializeMap();
-      return;
-    }
-
-    const script = document.createElement("script");
-
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-
-    script.async = true;
-    script.defer = true;
-
-    script.addEventListener("load", initializeMap);
-
-    document.head.appendChild(script);
-  } catch (error) {
-    console.error("Google Maps failed to load:", error);
-  }
-}
+    let cancelled = false;
+    const previousAuthFailure = window.gm_authFailure;
+    const authFailure = () => {
+      if (!cancelled) setFailed(true);
+      console.error("Google Maps authorization failed. Check Maps JavaScript API enablement, billing, and allowed website referrers in Google Cloud.");
+      previousAuthFailure?.();
+    };
+    window.gm_authFailure = authFailure;
+    loadGoogleMaps().then(() => {
+      if (!cancelled) initializeMap();
+    }).catch((error) => {
+      if (!cancelled) {
+        setFailed(true);
+        console.error("Google Maps could not initialize:", error.message);
+      }
+    });
 
     function initializeMap() {
       if (!mapRef.current || !window.google?.maps) {
@@ -278,6 +302,8 @@ export default function GoogleMap() {
         {
           center: startingLocation,
           zoom: 13,
+          // Advanced markers require a map ID; Google provides this demo ID for development.
+          mapId: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID",
 
           // Prevent clicking Google's built-in POIs/icons
           clickableIcons: false,
@@ -294,34 +320,35 @@ export default function GoogleMap() {
   40.7128,
   -74.006,
   "Example Location",
-  markerThing,
-  [
-    "/images/location-1.jpg",
-    "/images/location-2.jpg",
-    "/images/location-3.jpg",
-    "/images/location-4.jpg",
-  ]
+  markerThing.src,
+  []
 );
     }
 
-    loadMap();
-
     return () => {
+      cancelled = true;
+      if (window.gm_authFailure === authFailure) window.gm_authFailure = previousAuthFailure;
       markersRef.current.forEach((marker) => {
-        marker.setMap(null);
+        window.google.maps.event.clearInstanceListeners(marker);
+        marker.map = null;
       });
 
       markersRef.current = [];
+      googleMapRef.current = null;
     };
   }, []);
 
   return (
+    <div className="w-full min-w-0">
+    {failed && <p role="status">The map is currently unavailable. Please try again later.</p>}
     <div
+      aria-label="Location map"
       ref={mapRef}
       style={{
         width: "100%",
         height: "500px",
       }}
     />
+    </div>
   );
 }

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getMongo } from "@/lib/mongodb";
 
 
 const API_KEYS = {
@@ -9,7 +8,8 @@ const API_KEYS = {
 export async function GET(request, { params }) {
   const { service } = await params;
 
-  const apiKey = API_KEYS[service];
+  // Browser Maps keys are public; only expose the explicit supported service.
+  const apiKey = service === "googleMaps" ? API_KEYS.googleMaps : undefined;
 
   if (!apiKey) {
     return NextResponse.json(

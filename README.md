@@ -50,7 +50,7 @@ public/          static files served from /
 
 ## Environment variables
 
-Put secrets in `.env.local`, which is git-ignored. Only variables prefixed with `NEXT_PUBLIC_` reach the browser.
+Put secrets in `.env.local`, which is git-ignored. Variables prefixed with `NEXT_PUBLIC_` are bundled for the browser. The Maps key is also explicitly sent to the browser by its API route; it is not a server secret.
 
 ## Authentication setup
 
@@ -63,7 +63,13 @@ Authentication uses Better Auth, the native MongoDB adapter, and database sessio
 5. Add `http://localhost:3000` as an authorized JavaScript origin and `http://localhost:3000/api/auth/callback/google` as the redirect URI. Add the corresponding HTTPS origin and callback for deployment; set `BETTER_AUTH_URL` to that origin. Production requires HTTPS.
 6. Run `npm run dev`. Without Google credentials, password authentication still works and the Google button is hidden. No database or OAuth connection is required for a production build.
 
-Deploy behind a trusted proxy that overwrites client IP headers (such as the hosting platform's standard proxy). Better Auth uses these headers for shared database-backed authentication rate limits; do not expose an origin that accepts arbitrary forwarded IPs from clients. All application instances must share the MongoDB database, auth secret, and public URL.
+`npm run start` runs in production mode and requires an HTTPS `BETTER_AUTH_URL`, even locally. Use `npm run dev` for HTTP localhost, or terminate HTTPS at a local reverse proxy. Keep the browser origin, OAuth redirect URI, and `BETTER_AUTH_URL` consistent (including the port); origin mismatches are rejected.
+
+Set `GOOGLE_MAPS_API_KEY` for the home-page map. In Google Cloud, restrict this browser key to your website HTTP referrers and the Maps JavaScript API, and set quotas. Never reuse a server API key for this endpoint. Advanced markers also require a JavaScript map ID: set `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` for deployment (the component uses Google’s `DEMO_MAP_ID` when unset). Restart the dev server after changing environment variables.
+
+Deploy behind a trusted proxy that overwrites client IP headers (such as the hosting platform's standard proxy). Better Auth uses these headers for shared database-backed authentication rate limits; do not expose an origin that accepts arbitrary forwarded IPs from clients. Set `AUTH_IP_ADDRESS_HEADERS` to the header(s) your ingress overwrites (default `x-forwarded-for`). For a multi-hop forwarded chain, set `AUTH_TRUSTED_PROXIES` to the actual proxy IPs/CIDRs; the library walks the chain from right to left. Do not trust all addresses or choose a header clients can supply. Without trusted proxy configuration, multi-hop chains share a fallback rate-limit bucket: verify distinct client IPs produce distinct buckets in staging. These values depend on your deployment and cannot be guessed safely.
+
+All application instances must share the MongoDB database, auth secret, and public URL.
 
 ### Account behavior
 
@@ -71,7 +77,7 @@ Deploy behind a trusted proxy that overwrites client IP headers (such as the hos
 - `/login`: email/password, phone/password, or Google OAuth. Email and phone are unique. Google accounts do not have passwords. Accounts are never automatically linked by matching email or phone.
 - `/complete-profile`: first-time Google users confirm their imported names and enter a phone number. Both names and phone are required before protected application access. Returning Google logins preserve edited names.
 - `/profile`: authenticated landing page with name editing, read-only email/phone, and logout. New protected server pages should use `requireSession()` from `lib/session.ts`; incomplete accounts are redirected to onboarding.
-- Sessions expire after seven days and renew after a day of use. Logout deletes the current database session. Session data is not cached in client-readable cookies.
+- Sessions expire after seven days and renew after a day of use via a browser session request on navigation, focus, and every five visible minutes. Server-only session reads do not extend expiry. Logout deletes the current database session. Session data is not cached in client-readable cookies.
 - Phone numbers are **unverified identifiers**, not proof of ownership. They are not used for recovery or linking. SMS, OTP login, email verification, password recovery, email/phone changes, adding passwords to Google accounts, and account linking are deferred and their auth endpoints are blocked.
 
 ### Profile API
@@ -85,7 +91,7 @@ Both endpoints require a valid session cookie, an `Origin` matching `BETTER_AUTH
 
 Success returns `{ success: true }`. Errors return `{ error: { code, message } }` with 400 (validation), 401 (missing session), 403 (origin/incomplete profile), 409 (conflict), 429 (rate limit), or 503 (unavailable). Verification flags, completion timestamps, and user IDs cannot be set by the client. The library's general `/update-user` endpoint is disabled so these restrictions also apply to direct API calls.
 
-Indexes enforce unique email, populated phone number, provider/account identity, session token, and rate-limit key. Session and verification expiration indexes support cleanup; session expiry is checked by the auth library without waiting for cleanup. There is no existing-user migration.
+Indexes enforce unique email, populated phone number, provider/account identity, session token, and rate-limit key. Session and verification expiration indexes support cleanup; session expiry is checked by the auth library without waiting for cleanup. New OAuth tokens are encrypted with the auth secret. Existing plaintext OAuth tokens are not retroactively encrypted; before deploying over an existing installation, inventory and migrate those tokens or revoke them and require a fresh Google login. Keep the auth secret stable and backed up. There is no existing-user migration.
 
 ### Verification
 

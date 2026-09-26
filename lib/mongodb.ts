@@ -1,4 +1,5 @@
 import "server-only";
+import { AuthConfigurationError } from "./auth-errors";
 import { MongoClient } from "mongodb";
 import { ensureAuthIndexes } from "./auth-indexes";
 
@@ -9,7 +10,7 @@ const globalMongo = globalThis as typeof globalThis & {
 export function getMongo() {
   if (!globalMongo.authMongo) {
     globalMongo.authMongo = (async () => {
-      if (!process.env.MONGODB_URI || !process.env.MONGODB_DB) throw new Error("MongoDB is not configured.");
+      if (!process.env.MONGODB_URI || !process.env.MONGODB_DB) throw new AuthConfigurationError("Set both MONGODB_URI and MONGODB_DB.");
       const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
       try {
         await client.connect();

@@ -1,3 +1,4 @@
+import { logAuthFailure } from "./auth-errors";
 import { MongoServerError, ObjectId, type Db } from "mongodb";
 import type { Auth } from "./auth-config";
 import { conflictMessage, InputError, isProfileComplete, names, normalizePhone, objectBody, onlyFields } from "./auth-validation";
@@ -9,18 +10,32 @@ export function apiError(status: number, code: string, message: string) {
 export async function updateProfile(request: Request, auth: Auth, db: Db, origin: string, complete: boolean) {
   try {
     if (request.headers.get("origin") !== origin) return apiError(403, "INVALID_ORIGIN", "This request is not allowed.");
-    const session = await auth.api.getSession({ headers: request.headers });
+    const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
     if (!session) return apiError(401, "UNAUTHENTICATED", "Sign in to continue.");
     if (!complete && !isProfileComplete(session.user)) return apiError(403, "PROFILE_INCOMPLETE", "Complete your profile to continue.");
     if (complete && isProfileComplete(session.user)) return apiError(409, "PROFILE_ALREADY_COMPLETE", "Your profile is already complete.");
 
-    const bucket = Math.floor(Date.now() / 60_000);
-    const limit = await db.collection<{ _id: string; count: number; expiresAt: Date }>("profileRateLimit").findOneAndUpdate(
-      { _id: `${session.user.id}:${bucket}` },
-      { $inc: { count: 1 }, $setOnInsert: { expiresAt: new Date((bucket + 2) * 60_000) } },
+    // One atomic sliding window per user, shared across application instances.
+    const now = Date.now();
+    const collection = db.collection<{ _id: string; timestamps: number[]; allowed: boolean; expiresAt: Date }>("profileRateLimit");
+    const consume = () => collection.findOneAndUpdate(
+      { _id: session.user.id },
+      [
+        { $set: { timestamps: { $filter: { input: { $ifNull: ["$timestamps", []] }, as: "time", cond: { $gt: ["$$time", now - 60_000] } } } } },
+        { $set: { allowed: { $lt: [{ $size: "$timestamps" }, 20] } } },
+        { $set: {
+          timestamps: { $cond: ["$allowed", { $concatArrays: ["$timestamps", [now]] }, "$timestamps"] },
+          expiresAt: new Date(now + 120_000),
+        } },
+      ],
       { upsert: true, returnDocument: "after" },
     );
-    if (limit && limit.count > 20) return apiError(429, "RATE_LIMITED", "Too many changes. Please wait a minute and try again.");
+    const limit = await consume().catch((error) => {
+      // Concurrent first requests can race to insert the same unique user key.
+      if (error instanceof MongoServerError && error.code === 11000) return consume();
+      throw error;
+    });
+    if (!limit?.allowed) return apiError(429, "RATE_LIMITED", "Too many changes. Please wait a minute and try again.");
 
     let body: Record<string, unknown>;
     try { body = objectBody(await request.json()); } catch { throw new InputError("Send a valid JSON object."); }
@@ -40,6 +55,7 @@ export async function updateProfile(request: Request, auth: Auth, db: Db, origin
   } catch (error) {
     if (error instanceof InputError) return apiError(400, "INVALID_INPUT", error.message);
     if (error instanceof MongoServerError && error.code === 11000) return apiError(409, "IDENTIFIER_IN_USE", conflictMessage);
+    logAuthFailure("Profile update", error);
     return apiError(503, "UNAVAILABLE", "We could not save your profile. Please try again.");
   }
 }

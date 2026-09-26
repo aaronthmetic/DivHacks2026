@@ -3,11 +3,13 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { phoneNumber } from "better-auth/plugins";
 import type { Db, MongoClient } from "mongodb";
-import { conflictMessage, InputError, normalizeEmail, normalizePhone, registration } from "./auth-validation";
+import { conflictMessage, InputError, normalizeEmail, normalizePhone, objectBody, onlyFields, registration } from "./auth-validation";
 
 export type AuthEnvironment = {
   baseURL: string;
   secret: string;
+  ipAddressHeaders?: string[];
+  trustedProxies?: string[];
   googleClientId?: string;
   googleClientSecret?: string;
 };
@@ -34,7 +36,9 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
         mapProfileToUser: googleProfile,
       },
     } : {},
-    account: { accountLinking: { enabled: false } },
+    account: { accountLinking: { enabled: false }, encryptOAuthTokens: true },
+    onAPIError: { errorURL: "/login" },
+    advanced: { ipAddress: { ipAddressHeaders: env.ipAddressHeaders ?? ["x-forwarded-for"], trustedProxies: env.trustedProxies } },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     user: {
       additionalFields: {
@@ -64,6 +68,9 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
           throw new APIError("FORBIDDEN", { message: "This account operation is not enabled." });
         }
         try {
+          if (["/sign-up/email", "/sign-in/email", "/sign-in/phone-number", "/sign-in/social"].includes(ctx.path)) {
+            ctx.body = objectBody(ctx.body);
+          }
           if (ctx.path === "/sign-up/email") {
             const data = registration(ctx.body);
             const existing = await db.collection("user").findOne({ $or: [{ email: data.email }, { phoneNumber: data.phoneNumber }] });
@@ -78,7 +85,8 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
           }
           if (ctx.path === "/sign-in/social") {
             // Only the OAuth authorization-code flow is exposed, with fixed local redirects.
-            if (ctx.body.provider !== "google" || ctx.body.idToken || ctx.body.additionalData || ctx.body.additionalParams) {
+            onlyFields(ctx.body, ["provider"]);
+            if (ctx.body.provider !== "google") {
               throw new InputError("Use the Google sign-in button to continue.");
             }
             return { context: { ...ctx, body: { provider: "google", callbackURL: "/profile", newUserCallbackURL: "/complete-profile", errorCallbackURL: "/login" } } };

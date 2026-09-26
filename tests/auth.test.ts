@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { MongoClient, type Db } from "mongodb";
+import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, googleProfile, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
 import { handleAuthRequest } from "../lib/auth-handler";
@@ -161,6 +161,9 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   const cookies = cookie(result);
   let session = await auth.api.getSession({ headers: new Headers({ cookie: cookies }) });
   assert.ok(session);
+  const oauthAccount = await db.collection("account").findOne({ userId: new ObjectId(session.user.id), providerId: "google" });
+  assert.ok(oauthAccount?.accessToken);
+  assert.notEqual(oauthAccount.accessToken, "test-access-token");
   assert.equal(session.user.firstName, "Google");
   assert.equal(session.user.lastName, "");
   assert.equal(isProfileComplete(session.user), false);
@@ -194,6 +197,7 @@ test("disabled auth endpoints and invalid OAuth state cannot create sessions", a
   }
   const invalid = await request("/callback/google?code=fake&state=invalid");
   assert.equal(invalid.status, 302);
+  assert.equal(new URL(invalid.headers.get("location")!, origin).pathname, "/login");
   assert.doesNotMatch(cookie(invalid), /session_token=/);
 });
 
@@ -207,7 +211,8 @@ test("database-backed rate limiting applies across auth instances", async () => 
   assert.equal((await request("/sign-in/phone-number", { phoneNumber: "+12025550888", password: "wrong-password" }, "", second, address)).status, 429);
 });
 
-test("profile changes have a shared per-user rate limit", async () => {
+test("profile changes have a shared per-user rate limit", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const user = await register();
   const body = { firstName: "Rate", lastName: "Limit" };
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -222,7 +227,7 @@ test("cross-origin auth requests and external redirects are rejected", async () 
   const external = await request("/sign-in/social", { provider: "google", callbackURL: "https://evil.example" });
   // The auth library rejects untrusted origins before our fixed local redirects.
   if (external.ok) assert.equal(new URL((await external.json()).url).origin, "https://accounts.google.com");
-  else assert.equal(external.status, 403);
+  else assert.ok([400, 403].includes(external.status));
   assert.equal((await request("/sign-in/social", { provider: "google", idToken: { token: "forged" } })).status, 400);
 });
 
@@ -252,4 +257,93 @@ test("database failures return a safe retryable response", async () => {
   assert.equal((await result.json()).error.code, "UNAVAILABLE");
   const user = await register();
   assert.equal((await updateProfile(profileRequest({ firstName: "A", lastName: "B" }, user.cookie), auth, failedDb, origin, false)).status, 503);
+});
+
+
+test("malformed auth bodies are rejected as client errors", async () => {
+  for (const path of ["/sign-up/email", "/sign-in/email", "/sign-in/phone-number", "/sign-in/social"]) {
+    for (const body of [null, [], "invalid"]) {
+      const response = await request(path, body);
+      assert.equal(response.status, 400, `${path}: ${await response.clone().text()}`);
+    }
+  }
+});
+
+test("OAuth only accepts the fixed provider flow", async () => {
+  for (const extra of [
+    { scopes: ["https://www.googleapis.com/auth/drive"] }, { loginHint: "someone@example.com" },
+    { disableRedirect: true }, { requestSignUp: true }, { additionalData: {} },
+    { additionalParams: {} }, { idToken: null }, { callbackURL: "/" },
+  ]) {
+    assert.equal((await request("/sign-in/social", { provider: "google", ...extra })).status, 400);
+  }
+  const response = await request("/sign-in/social", { provider: "google" });
+  assert.equal(response.status, 200);
+  const url = new URL((await response.json()).url);
+  assert.deepEqual(url.searchParams.get("scope")!.split(" ").sort(), ["email", "openid", "profile"]);
+});
+
+test("sign-in preserves origin and input errors", async () => {
+  const response = await handleAuthRequest(new Request(`${origin}/api/auth/sign-in/email`, {
+    method: "POST", headers: { origin: "http://127.0.0.1:3000", "content-type": "application/json" },
+    body: JSON.stringify({ email: "person@example.com", password: "password" }),
+  }), auth);
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "INVALID_ORIGIN");
+  assert.equal((await request("/sign-in/email", { email: "invalid", password: "password" })).status, 400);
+});
+
+test("server reads do not renew sessions; browser endpoint renews cookie and database together", async () => {
+  const user = await register();
+  const expiresAt = new Date(Date.now() + 5 * 86400000);
+  await db.collection("session").updateMany({ userId: new ObjectId(user.user.id) }, { $set: { expiresAt } });
+  const read = await auth.api.getSession({ headers: new Headers({ cookie: user.cookie }), query: { disableRefresh: true } });
+  assert.equal(new Date(read!.session.expiresAt).getTime(), expiresAt.getTime());
+  const response = await request("/get-session", undefined, user.cookie);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.getSetCookie().join(";"), /session_token=.*Max-Age=604800/);
+  const renewed = await response.json();
+  assert.ok(new Date(renewed.session.expiresAt).getTime() > expiresAt.getTime());
+});
+
+test("sliding profile limit resists minute boundaries and concurrent requests", async (t) => {
+  const user = await register();
+  const start = Math.floor(Date.now() / 60_000) * 60_000 + 59_900;
+  t.mock.timers.enable({ apis: ["Date"], now: start });
+  const body = { firstName: "Rate", lastName: "Test" };
+  const edit = () => updateProfile(profileRequest(body, user.cookie), auth, db, origin, false);
+  const results = await Promise.all(Array.from({ length: 25 }, edit));
+  assert.equal(results.filter((r) => r.status === 200).length, 20);
+  assert.equal(results.filter((r) => r.status === 429).length, 5);
+  t.mock.timers.tick(200);
+  assert.equal((await edit()).status, 429);
+  t.mock.timers.tick(60_000);
+  assert.equal((await edit()).status, 200);
+});
+
+test("phone normalization trims pasted whitespace and distinguishes extensions", () => {
+  assert.equal(normalizePhone(" \t+1 202 555 0123\u00a0"), "+12025550123");
+  assert.throws(() => normalizePhone("12345", "US"), /Enter a valid phone number\./);
+  assert.throws(() => normalizePhone("+1 202 555 0123 ext. 12"), /without an extension/);
+});
+
+test("callback server errors return a fixed login redirect without leaking details", async () => {
+  const broken = { handler: async () => { throw new Error("private token"); } } as unknown as Auth;
+  const result = await handleAuthRequest(new Request(`${origin}/api/auth/callback/google?state=private`), broken);
+  assert.equal(result.status, 302);
+  assert.equal(result.headers.get("location"), "/login?error=unavailable");
+  assert.equal(await result.text(), "");
+});
+
+
+test("trusted proxy hops preserve separate client rate-limit buckets", async () => {
+  const proxied = createAuth(db, client, { ...env, trustedProxies: ["10.0.0.10/32"] });
+  const body = { phoneNumber: "+12025550888", password: "wrong-password" };
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await request("/sign-in/phone-number", body, "", proxied, "198.51.100.201, 10.0.0.10")).status, 401);
+  }
+  assert.equal((await request("/sign-in/phone-number", body, "", proxied, "198.51.100.201, 10.0.0.10")).status, 429);
+  assert.equal((await request("/sign-in/phone-number", body, "", proxied, "198.51.100.202, 10.0.0.10")).status, 401);
+  // A spoofed left-most entry must not replace the right-most untrusted client.
+  assert.equal((await request("/sign-in/phone-number", body, "", proxied, "203.0.113.5, 198.51.100.201, 10.0.0.10")).status, 429);
 });

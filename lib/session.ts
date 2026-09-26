@@ -1,6 +1,7 @@
+import { logAuthFailure } from "@/lib/auth-errors";
 import "server-only";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { getAuth } from "./auth";
 import { isProfileComplete } from "./auth-validation";
 import { getSessionCookie } from "better-auth/cookies";
@@ -10,7 +11,7 @@ export async function getSession() {
   // Analytics and other unrelated cookies must not trigger a database connection.
   if (!getSessionCookie(requestHeaders)) return null;
   const auth = await getAuth();
-  return auth.api.getSession({ headers: requestHeaders });
+  return auth.api.getSession({ headers: requestHeaders, query: { disableRefresh: true } });
 }
 
 export async function requireSession(complete = true) {
@@ -25,6 +26,6 @@ export async function redirectIfSignedIn() {
   if (!process.env.MONGODB_URI || !process.env.BETTER_AUTH_SECRET) return;
   // This optional redirect must not turn public auth pages into a 500 during an
   // outage. Protected routes still use requireSession(), which fails closed.
-  const session = await getSession().catch(() => null);
+  const session = await getSession().catch((error) => { unstable_rethrow(error); logAuthFailure("Optional session read", error); return null; });
   if (session) redirect(isProfileComplete(session.user) ? "/profile" : "/complete-profile");
 }

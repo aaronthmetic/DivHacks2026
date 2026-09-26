@@ -70,6 +70,14 @@ Group chats need a dedicated Photon line (Business plan). On Free or Pro, a grou
 
 Only text is passed along. For photos and other content, the other person gets a short note instead.
 
+## Map
+
+The map shows one card per zip code, with up to three cards fanned out when a zip has several services. Cards that would overlap merge into one stack ("2 areas"); click it to zoom in. Hovering a card or a zip's area highlights the area, and clicking selects it.
+
+- `GOOGLE_MAPS_API_KEY`: your Maps JavaScript API key.
+- `GOOGLE_MAPS_MAP_ID` (optional): sets the map style. To hide businesses and transit, create a map style in Google Cloud with points of interest and transit turned off, create a JavaScript Map ID under Map Management, attach the style to it, and put the ID here. Without it, the map uses Google's demo Map ID.
+- Zip outlines come from NYC Open Data. After adding zip codes to `lib/xchg/data.ts`, run `node scripts/zip-boundaries.mjs <zip> [zip...]` to regenerate `lib/xchg/zip-boundaries.json`. It also prints each zip's official center point.
+
 ## Project layout
 
 ```
@@ -78,7 +86,7 @@ app/api/dev/     dev-only API routes (Photon test endpoint)
 components/ui/   shadcn/ui components
 lib/             Photon client, relay pairing, cn() helper
 public/          static files served from /
-scripts/         standalone scripts (npm run relay)
+scripts/         standalone scripts (relay, zip boundaries)
 ```
 
 ## Environment variables
@@ -98,7 +106,7 @@ Authentication uses Better Auth, the native MongoDB adapter, and database sessio
 
 `npm run start` runs in production mode and requires an HTTPS `BETTER_AUTH_URL`, even locally. Use `npm run dev` for HTTP localhost, or terminate HTTPS at a local reverse proxy. Keep the browser origin, OAuth redirect URI, and `BETTER_AUTH_URL` consistent (including the port); origin mismatches are rejected.
 
-Set `GOOGLE_MAPS_API_KEY` for the home-page map. In Google Cloud, restrict this browser key to your website HTTP referrers and the Maps JavaScript API, and set quotas. Never reuse a server API key for this endpoint. Advanced markers also require a JavaScript map ID: set `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` for deployment (the component uses Google’s `DEMO_MAP_ID` when unset). Restart the dev server after changing environment variables.
+Set `GOOGLE_MAPS_API_KEY` for the home-page map. In Google Cloud, restrict this browser key to your website HTTP referrers and the Maps JavaScript API, and set quotas. Never reuse a server API key for this endpoint. Advanced markers also require a JavaScript map ID: set `GOOGLE_MAPS_MAP_ID` for deployment (the component uses Google’s `DEMO_MAP_ID` when unset). Restart the dev server after changing environment variables.
 
 Deploy behind a trusted proxy that overwrites client IP headers (such as the hosting platform's standard proxy). Better Auth uses these headers for shared database-backed authentication rate limits; do not expose an origin that accepts arbitrary forwarded IPs from clients. Set `AUTH_IP_ADDRESS_HEADERS` to the header(s) your ingress overwrites (default `x-forwarded-for`). For a multi-hop forwarded chain, set `AUTH_TRUSTED_PROXIES` to the actual proxy IPs/CIDRs; the library walks the chain from right to left. Do not trust all addresses or choose a header clients can supply. Without trusted proxy configuration, multi-hop chains share a fallback rate-limit bucket: verify distinct client IPs produce distinct buckets in staging. These values depend on your deployment and cannot be guessed safely.
 

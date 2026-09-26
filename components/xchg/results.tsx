@@ -63,8 +63,11 @@ export function ResultsPanel({
       </h2>
       <ul
         className={cn(
-          "grid grid-cols-2",
-          compact ? "mt-4 gap-[27px]" : "mt-[18px] gap-[30px]",
+          "grid",
+          compact
+            ? "mt-4 grid-cols-2 gap-[27px]"
+            : // Two columns only once the panel is wide enough to fit tags.
+              "mt-[18px] grid-cols-1 gap-[30px] xl:grid-cols-2",
         )}
       >
         {services.map((service) => (

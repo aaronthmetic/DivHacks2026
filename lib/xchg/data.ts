@@ -35,13 +35,15 @@ export type Notification = {
   read: boolean;
 };
 
+// Official zip center points from NYC Open Data. Outlines are in
+// zip-boundaries.json; regenerate both with scripts/zip-boundaries.mjs.
 export const zipAreas: ZipArea[] = [
-  { zip: "10024", neighborhood: "Upper West Side", lat: 40.7864, lng: -73.9765 },
-  { zip: "10025", neighborhood: "Manhattan Valley", lat: 40.7985, lng: -73.9681 },
-  { zip: "10026", neighborhood: "Central Harlem", lat: 40.8025, lng: -73.9525 },
-  { zip: "10027", neighborhood: "Morningside Heights", lat: 40.8116, lng: -73.9531 },
-  { zip: "10029", neighborhood: "East Harlem", lat: 40.7918, lng: -73.9438 },
-  { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8251, lng: -73.9502 },
+  { zip: "10024", neighborhood: "Upper West Side", lat: 40.78566, lng: -73.97127 },
+  { zip: "10025", neighborhood: "Manhattan Valley", lat: 40.79825, lng: -73.96834 },
+  { zip: "10026", neighborhood: "Central Harlem", lat: 40.80298, lng: -73.95353 },
+  { zip: "10027", neighborhood: "Morningside Heights", lat: 40.81266, lng: -73.95498 },
+  { zip: "10029", neighborhood: "East Harlem", lat: 40.79225, lng: -73.94733 },
+  { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8248, lng: -73.95021 },
 ];
 
 export const services: Service[] = [

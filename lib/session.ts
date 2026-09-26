@@ -27,5 +27,5 @@ export async function redirectIfSignedIn() {
   // This optional redirect must not turn public auth pages into a 500 during an
   // outage. Protected routes still use requireSession(), which fails closed.
   const session = await getSession().catch((error) => { unstable_rethrow(error); logAuthFailure("Optional session read", error); return null; });
-  if (session) redirect(isProfileComplete(session.user) ? "/profile" : "/complete-profile");
+  if (session) redirect(isProfileComplete(session.user) ? "/" : "/complete-profile");
 }

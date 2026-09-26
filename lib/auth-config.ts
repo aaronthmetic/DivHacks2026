@@ -75,10 +75,10 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
             const data = registration(ctx.body);
             const existing = await db.collection("user").findOne({ $or: [{ email: data.email }, { phoneNumber: data.phoneNumber }] });
             if (existing) throw new APIError("CONFLICT", { message: conflictMessage });
-            return { context: { ...ctx, body: { ...data, callbackURL: "/profile" } } };
+            return { context: { ...ctx, body: { ...data, callbackURL: "/" } } };
           }
           if (ctx.path === "/sign-in/email") {
-            return { context: { ...ctx, body: { ...ctx.body, email: normalizeEmail(ctx.body.email), callbackURL: "/profile", rememberMe: true } } };
+            return { context: { ...ctx, body: { ...ctx.body, email: normalizeEmail(ctx.body.email), callbackURL: "/", rememberMe: true } } };
           }
           if (ctx.path === "/sign-in/phone-number") {
             return { context: { ...ctx, body: { ...ctx.body, phoneNumber: normalizePhone(ctx.body.phoneNumber), rememberMe: true } } };
@@ -89,7 +89,7 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
             if (ctx.body.provider !== "google") {
               throw new InputError("Use the Google sign-in button to continue.");
             }
-            return { context: { ...ctx, body: { provider: "google", callbackURL: "/profile", newUserCallbackURL: "/complete-profile", errorCallbackURL: "/login" } } };
+            return { context: { ...ctx, body: { provider: "google", callbackURL: "/", newUserCallbackURL: "/complete-profile", errorCallbackURL: "/login" } } };
           }
         } catch (error) {
           if (error instanceof InputError) throw new APIError("BAD_REQUEST", { message: error.message });

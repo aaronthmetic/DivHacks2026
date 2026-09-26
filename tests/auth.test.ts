@@ -177,6 +177,7 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   assert.equal((await request("/sign-in/phone-number", { phoneNumber: body.phoneNumber, password: "not a password" })).status, 401);
   const returning = await googleLogin(email, "Original", "GoogleName");
   assert.equal(returning.status, 302);
+  assert.equal(new URL(returning.headers.get("location")!, origin).pathname, "/");
   const updated = await auth.api.getSession({ headers: new Headers({ cookie: cookie(returning) }) });
   assert.equal(updated?.user.name, "Chosen Name");
 });

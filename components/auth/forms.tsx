@@ -61,7 +61,7 @@ export function AuthForm({ mode, googleEnabled, oauthError = false }: { mode: "l
       } else {
         await api("/api/auth/sign-in/phone-number", { phoneNumber: normalizePhone(identifier, country), password });
       }
-      router.replace("/profile"); router.refresh();
+      router.replace("/"); router.refresh();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to connect. Please try again.");
       setBusy(false);
@@ -120,7 +120,7 @@ export function ProfileForm({ firstName, lastName, complete = false }: { firstNa
         firstName: form.get("firstName"), lastName: form.get("lastName"),
         ...(complete ? { phoneNumber: normalizePhone(form.get("phoneNumber"), country) } : {}),
       }, complete ? "POST" : "PATCH");
-      if (complete) router.replace("/profile");
+      if (complete) router.replace("/");
       setSaved(true); router.refresh();
       if (!complete) setBusy(false);
     } catch (error) { setError(error instanceof Error ? error.message : "We could not save your profile."); setBusy(false); }

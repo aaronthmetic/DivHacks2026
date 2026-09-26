@@ -109,7 +109,8 @@ All application instances must share the MongoDB database, auth secret, and publ
 - `/register`: first name, last name, email, phone number, and a 12–128 character password are required. Passwords are hashed by Better Auth. Email is trimmed and lowercased; phone numbers use E.164 with an explicit country selector (US initially selected).
 - `/login`: email/password, phone/password, or Google OAuth. Email and phone are unique. Google accounts do not have passwords. Accounts are never automatically linked by matching email or phone.
 - `/complete-profile`: first-time Google users confirm their imported names and enter a phone number. Both names and phone are required before protected application access. Returning Google logins preserve edited names.
-- `/profile`: authenticated landing page with name editing, read-only email/phone, and logout. New protected server pages should use `requireSession()` from `lib/session.ts`; incomplete accounts are redirected to onboarding.
+- `/`: authenticated service explorer; signed-out visitors are redirected to `/login`. Successful login and completed onboarding return here.
+- `/profile`: authenticated account page with name editing, read-only email/phone, and logout. New protected server pages should use `requireSession()` from `lib/session.ts`; incomplete accounts are redirected to onboarding.
 - Sessions expire after seven days and renew after a day of use via a browser session request on navigation, focus, and every five visible minutes. Server-only session reads do not extend expiry. Logout deletes the current database session. Session data is not cached in client-readable cookies.
 - Phone numbers are **unverified identifiers**, not proof of ownership. They are not used for recovery or linking. SMS, OTP login, email verification, password recovery, email/phone changes, adding passwords to Google accounts, and account linking are deferred and their auth endpoints are blocked.
 

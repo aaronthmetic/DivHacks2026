@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Barlow_Condensed, Inter } from "next/font/google";
 import "./globals.css";
-import { AuthNavigation } from "@/components/auth/navigation";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -26,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${inter.variable} ${barlowCondensed.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col"><AuthNavigation />{children}</body>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

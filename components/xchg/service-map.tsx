@@ -1,6 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type {
+  ReactNode,
+} from "react";
+
 import {
   useCallback,
   useEffect,
@@ -8,6 +11,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
 import {
   AdvancedMarker,
   APILoadingStatus,
@@ -16,26 +20,101 @@ import {
   useApiLoadingStatus,
   useMap,
 } from "@vis.gl/react-google-maps";
-import type { Category, Service, ZipArea } from "@/lib/xchg/data";
-import boundaries from "@/lib/xchg/zip-boundaries.json";
-import { cn } from "@/lib/utils";
 
-// Advanced Markers (custom HTML markers) need a Map ID. Google's demo ID works
-// for development; GOOGLE_MAPS_MAP_ID can point at a styled one (see README).
-const DEMO_MAP_ID = "DEMO_MAP_ID";
-const HIGHLIGHT = "#2ca3ff"; // --color-xchg-blue
-const MAX_CARDS = 3;
-// On-screen size of a card stack, used to decide when stacks would overlap.
+import type {
+  Service,
+  ZipArea,
+} from "@/lib/xchg/data";
+
+import boundaries from "@/lib/xchg/zip-boundaries.json";
+
+import {
+  cn,
+} from "@/lib/utils";
+
+const DEMO_MAP_ID =
+  "DEMO_MAP_ID";
+
+const HIGHLIGHT =
+  "#2ca3ff";
+
+const MAX_CARDS =
+  3;
+
 const STACK = {
-  desktop: { width: 130, height: 128 },
-  phone: { width: 100, height: 100 },
+  desktop: {
+    width: 130,
+    height: 128,
+  },
+
+  phone: {
+    width: 100,
+    height: 100,
+  },
 };
 
 type Group = {
   key: string;
+
   zips: ZipArea[];
-  position: google.maps.LatLngLiteral;
+
+  position:
+    google.maps.LatLngLiteral;
 };
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+function normalizeZip(
+  value: unknown,
+) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return "";
+  }
+
+  const zip =
+    String(
+      value,
+    ).trim();
+
+  if (
+    /^\d+$/.test(
+      zip,
+    )
+  ) {
+    return zip.padStart(
+      5,
+      "0",
+    );
+  }
+
+  return zip;
+}
+
+function getServiceImageUrl(
+  service: Service,
+): string | null {
+  const imageId =
+    service.images?.[0];
+
+  if (!imageId) {
+    return null;
+  }
+
+  return `/api/images/${imageId}`;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Main component
+|--------------------------------------------------------------------------
+*/
 
 export default function ServiceMap({
   apiKey,
@@ -44,30 +123,63 @@ export default function ServiceMap({
   services,
   initialZip,
 }: {
-  apiKey: string | undefined;
-  mapId: string | undefined;
-  areas: ZipArea[];
-  services: Service[];
-  initialZip: string | null;
+  apiKey:
+    | string
+    | undefined;
+
+  mapId:
+    | string
+    | undefined;
+
+  areas:
+    ZipArea[];
+
+  services:
+    Service[];
+
+  initialZip:
+    string | null;
 }) {
   if (!apiKey) {
     return (
       <MapNotice>
-        Add GOOGLE_MAPS_API_KEY to .env.local to show the map.
+        Add GOOGLE_MAPS_API_KEY
+        to .env.local to show
+        the map.
       </MapNotice>
     );
   }
+
   return (
-    <APIProvider apiKey={apiKey}>
+    <APIProvider
+      apiKey={
+        apiKey
+      }
+    >
       <ZipMap
-        mapId={mapId || DEMO_MAP_ID}
-        areas={areas}
-        services={services}
-        initialZip={initialZip}
+        mapId={
+          mapId ||
+          DEMO_MAP_ID
+        }
+        areas={
+          areas
+        }
+        services={
+          services
+        }
+        initialZip={
+          initialZip
+        }
       />
     </APIProvider>
   );
 }
+
+/*
+|--------------------------------------------------------------------------
+| Google Map
+|--------------------------------------------------------------------------
+*/
 
 function ZipMap({
   mapId,
@@ -75,47 +187,127 @@ function ZipMap({
   services,
   initialZip,
 }: {
-  mapId: string;
-  areas: ZipArea[];
-  services: Service[];
-  initialZip: string | null;
+  mapId:
+    string;
+
+  areas:
+    ZipArea[];
+
+  services:
+    Service[];
+
+  initialZip:
+    string | null;
 }) {
-  const status = useApiLoadingStatus();
-  const [phone] = useState(
-    () => !window.matchMedia("(min-width: 1024px)").matches,
-  );
+  const status =
+    useApiLoadingStatus();
+
+  /*
+   * Do not access window during the initial render.
+   *
+   * This keeps the component safe even if it is ever
+   * rendered outside dynamic(..., { ssr: false }).
+   */
+  const [
+    phone,
+    setPhone,
+  ] =
+    useState(
+      false,
+    );
+
+  useEffect(() => {
+    const media =
+      window.matchMedia(
+        "(min-width: 1024px)",
+      );
+
+    const update =
+      () => {
+        setPhone(
+          !media.matches,
+        );
+      };
+
+    update();
+
+    media.addEventListener(
+      "change",
+      update,
+    );
+
+    return () => {
+      media.removeEventListener(
+        "change",
+        update,
+      );
+    };
+  }, []);
+
   if (
-    status === APILoadingStatus.FAILED ||
-    status === APILoadingStatus.AUTH_FAILURE
+    status ===
+      APILoadingStatus.FAILED ||
+    status ===
+      APILoadingStatus.AUTH_FAILURE
   ) {
     return (
       <MapNotice>
-        Google Maps didn’t load. Check that GOOGLE_MAPS_API_KEY is valid and
-        has the Maps JavaScript API enabled.
+        Google Maps
+        didn&apos;t load.
+        Check your API key
+        and Maps JavaScript
+        API configuration.
       </MapNotice>
     );
   }
+
   return (
     <GoogleMap
-      mapId={mapId}
-      defaultBounds={initialBounds(areas, initialZip, phone)}
-      // Without this, fitting bounds rounds down to a whole zoom level and
-      // shows far more area than asked for.
+      mapId={
+        mapId
+      }
+      defaultBounds={initialBounds(
+        areas,
+        initialZip,
+        phone,
+      )}
       isFractionalZoomEnabled
       disableDefaultUI
-      clickableIcons={false}
+      clickableIcons={
+        false
+      }
       gestureHandling="greedy"
-      style={{ width: "100%", height: "100%" }}
+      style={{
+        width:
+          "100%",
+
+        height:
+          "100%",
+      }}
     >
       <ZipLayer
-        areas={areas}
-        services={services}
-        initialZip={initialZip}
-        phone={phone}
+        areas={
+          areas
+        }
+        services={
+          services
+        }
+        initialZip={
+          initialZip
+        }
+        phone={
+          phone
+        }
       />
     </GoogleMap>
   );
 }
+
+/*
+|--------------------------------------------------------------------------
+| ZIP marker layer
+|--------------------------------------------------------------------------
+*/
 
 function ZipLayer({
   areas,
@@ -123,257 +315,1039 @@ function ZipLayer({
   initialZip,
   phone,
 }: {
-  areas: ZipArea[];
-  services: Service[];
-  initialZip: string | null;
-  phone: boolean;
+  areas:
+    ZipArea[];
+
+  services:
+    Service[];
+
+  initialZip:
+    string | null;
+
+  phone:
+    boolean;
 }) {
-  const map = useMap();
-  const zoom = useMapZoom(map);
-  const [selectedZip, setSelectedZip] = useState(initialZip);
-  const [hoveredZips, setHoveredZips] = useState<string[]>([]);
-  const toggleZip = useCallback(
-    (zip: string) =>
-      setSelectedZip((current) => (current === zip ? null : zip)),
-    [],
-  );
+  const map =
+    useMap();
 
-  useZipOutlines(map, {
-    selectedZip,
-    hoveredZips,
-    onHover: setHoveredZips,
-    onToggle: toggleZip,
-  });
-
-  // Stacks that would overlap on screen at this zoom merge into one.
-  const groups = useMemo(
-    () =>
-      zoom === undefined
-        ? []
-        : groupNearbyZips(areas, zoom, phone ? STACK.phone : STACK.desktop),
-    [areas, zoom, phone],
-  );
-
-  return groups.map((group) => {
-    const zips = group.zips.map((area) => area.zip);
-    const merged = zips.length > 1;
-    const selected = selectedZip !== null && zips.includes(selectedZip);
-    const hovered = hoveredZips.some((zip) => zips.includes(zip));
-    return (
-      <AdvancedMarker
-        key={group.key}
-        position={group.position}
-        title={merged ? `${zips.length} areas: ${zips.join(", ")}` : `ZIP ${zips[0]}`}
-        zIndex={selected ? 3 : hovered ? 2 : 1}
-        onMouseEnter={() => setHoveredZips(zips)}
-        onMouseLeave={() => setHoveredZips([])}
-        onClick={() =>
-          merged ? zoomToZips(map, group.zips, phone) : toggleZip(zips[0])
-        }
-      >
-        <CardStack
-          cards={cardsFor(group, services)}
-          label={merged ? `${zips.length} areas` : zips[0]}
-          selected={selected}
-        />
-      </AdvancedMarker>
+  const zoom =
+    useMapZoom(
+      map,
     );
-  });
+
+  const [
+    selectedZip,
+    setSelectedZip,
+  ] =
+    useState<
+      string | null
+    >(
+      initialZip,
+    );
+
+  const [
+    hoveredZips,
+    setHoveredZips,
+  ] =
+    useState<
+      string[]
+    >([]);
+
+  const toggleZip =
+    useCallback(
+      (
+        zip: string,
+      ) => {
+        const normalized =
+          normalizeZip(
+            zip,
+          );
+
+        setSelectedZip(
+          (
+            current,
+          ) =>
+            current ===
+            normalized
+              ? null
+              : normalized,
+        );
+      },
+      [],
+    );
+
+  useZipOutlines(
+    map,
+    {
+      selectedZip,
+
+      hoveredZips,
+
+      onHover:
+        setHoveredZips,
+
+      onToggle:
+        toggleZip,
+    },
+  );
+
+  /*
+   * `areas` now comes directly from MongoDB service ZIPs.
+   */
+  const groups =
+    useMemo(
+      () => {
+        if (
+          zoom ===
+          undefined
+        ) {
+          return [];
+        }
+
+        return groupNearbyZips(
+          areas,
+
+          zoom,
+
+          phone
+            ? STACK.phone
+            : STACK.desktop,
+        );
+      },
+      [
+        areas,
+        zoom,
+        phone,
+      ],
+    );
+
+  /*
+   * Browser-side debugging.
+   *
+   * Check DevTools -> Console.
+   */
+  useEffect(() => {
+    console.log(
+      "[ServiceMap] services:",
+      services,
+    );
+
+    console.log(
+      "[ServiceMap] areas:",
+      areas,
+    );
+
+    console.log(
+      "[ServiceMap] zoom:",
+      zoom,
+    );
+
+    console.log(
+      "[ServiceMap] groups:",
+      groups,
+    );
+
+    console.log(
+      "[ServiceMap] service zips:",
+      services.map(
+        (
+          service,
+        ) =>
+          service.zip,
+      ),
+    );
+  }, [
+    services,
+    areas,
+    zoom,
+    groups,
+  ]);
+
+  return (
+    <>
+      {groups.map(
+        (
+          group,
+        ) => {
+          const zips =
+            group.zips.map(
+              (
+                area,
+              ) =>
+                normalizeZip(
+                  area.zip,
+                ),
+            );
+
+          const cards =
+            cardsFor(
+              group,
+              services,
+            );
+
+          const merged =
+            zips.length >
+            1;
+
+          const selected =
+            selectedZip !==
+              null &&
+            zips.includes(
+              normalizeZip(
+                selectedZip,
+              ),
+            );
+
+          const hovered =
+            hoveredZips.some(
+              (
+                zip,
+              ) =>
+                zips.includes(
+                  normalizeZip(
+                    zip,
+                  ),
+                ),
+            );
+
+          /*
+           * IMPORTANT:
+           *
+           * Do NOT return null if cards.length === 0.
+           *
+           * A marker still renders so a bad service match
+           * cannot silently hide the entire marker.
+           */
+          return (
+            <AdvancedMarker
+              key={
+                group.key
+              }
+              position={
+                group.position
+              }
+              title={
+                merged
+                  ? `${zips.length} areas: ${zips.join(", ")}`
+                  : cards[0]
+                      ?.title ??
+                    `ZIP ${zips[0]}`
+              }
+              zIndex={
+                selected
+                  ? 3
+                  : hovered
+                    ? 2
+                    : 1
+              }
+              onMouseEnter={() =>
+                setHoveredZips(
+                  zips,
+                )
+              }
+              onMouseLeave={() =>
+                setHoveredZips(
+                  [],
+                )
+              }
+              onClick={() => {
+                if (
+                  merged
+                ) {
+                  zoomToZips(
+                    map,
+                    group.zips,
+                    phone,
+                  );
+                } else {
+                  toggleZip(
+                    zips[0],
+                  );
+                }
+              }}
+            >
+              <CardStack
+                cards={
+                  cards
+                }
+                label={
+                  merged
+                    ? `${zips.length} areas`
+                    : zips[0]
+                }
+                selected={
+                  selected
+                }
+              />
+            </AdvancedMarker>
+          );
+        },
+      )}
+    </>
+  );
 }
 
-function useMapZoom(map: google.maps.Map | null) {
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (!map) return () => {};
-      const listener = map.addListener("zoom_changed", onChange);
-      return () => listener.remove();
-    },
-    [map],
-  );
+/*
+|--------------------------------------------------------------------------
+| Map zoom hook
+|--------------------------------------------------------------------------
+*/
+
+function useMapZoom(
+  map:
+    | google.maps.Map
+    | null,
+) {
+  const subscribe =
+    useCallback(
+      (
+        onChange:
+          () => void,
+      ) => {
+        if (!map) {
+          return () => {};
+        }
+
+        const listener =
+          map.addListener(
+            "zoom_changed",
+            onChange,
+          );
+
+        return () => {
+          listener.remove();
+        };
+      },
+      [
+        map,
+      ],
+    );
+
   return useSyncExternalStore(
     subscribe,
-    () => map?.getZoom(),
-    () => undefined,
+
+    () =>
+      map?.getZoom(),
+
+    () =>
+      undefined,
   );
 }
 
-// Zip outlines stay nearly transparent until hovered or selected, so the
-// whole area can be hovered and clicked, not just the card.
+/*
+|--------------------------------------------------------------------------
+| ZIP polygon layer
+|--------------------------------------------------------------------------
+*/
+
 function useZipOutlines(
-  map: google.maps.Map | null,
+  map:
+    | google.maps.Map
+    | null,
+
   {
     selectedZip,
     hoveredZips,
     onHover,
     onToggle,
   }: {
-    selectedZip: string | null;
-    hoveredZips: string[];
-    onHover: (zips: string[]) => void;
-    onToggle: (zip: string) => void;
+    selectedZip:
+      string | null;
+
+    hoveredZips:
+      string[];
+
+    onHover:
+      (
+        zips:
+          string[],
+      ) => void;
+
+    onToggle:
+      (
+        zip:
+          string,
+      ) => void;
   },
 ) {
   useEffect(() => {
-    if (!map) return;
-    const features = map.data.addGeoJson(boundaries);
-    const zipOf = (event: google.maps.Data.MouseEvent) =>
-      String(event.feature.getProperty("zip"));
+    if (!map) {
+      return;
+    }
+
+    const features =
+      map.data.addGeoJson(
+        boundaries,
+      );
+
+    const zipOf = (
+      event:
+        google.maps.Data.MouseEvent,
+    ) =>
+      normalizeZip(
+        event.feature.getProperty(
+          "zip",
+        ),
+      );
+
     const listeners = [
-      map.data.addListener("mouseover", (event: google.maps.Data.MouseEvent) =>
-        onHover([zipOf(event)]),
+      map.data.addListener(
+        "mouseover",
+
+        (
+          event:
+            google.maps.Data.MouseEvent,
+        ) => {
+          onHover([
+            zipOf(
+              event,
+            ),
+          ]);
+        },
       ),
-      map.data.addListener("mouseout", () => onHover([])),
-      map.data.addListener("click", (event: google.maps.Data.MouseEvent) =>
-        onToggle(zipOf(event)),
+
+      map.data.addListener(
+        "mouseout",
+
+        () => {
+          onHover(
+            [],
+          );
+        },
+      ),
+
+      map.data.addListener(
+        "click",
+
+        (
+          event:
+            google.maps.Data.MouseEvent,
+        ) => {
+          onToggle(
+            zipOf(
+              event,
+            ),
+          );
+        },
       ),
     ];
+
     return () => {
-      listeners.forEach((listener) => listener.remove());
-      features.forEach((feature) => map.data.remove(feature));
+      listeners.forEach(
+        (
+          listener,
+        ) => {
+          listener.remove();
+        },
+      );
+
+      features.forEach(
+        (
+          feature,
+        ) => {
+          map.data.remove(
+            feature,
+          );
+        },
+      );
     };
-  }, [map, onHover, onToggle]);
+  }, [
+    map,
+    onHover,
+    onToggle,
+  ]);
 
   useEffect(() => {
-    if (!map) return;
-    map.data.setStyle((feature) => {
-      const zip = String(feature.getProperty("zip"));
-      const active = zip === selectedZip || hoveredZips.includes(zip);
-      return {
-        fillColor: HIGHLIGHT,
-        fillOpacity: active ? 0.3 : 0.001,
-        strokeColor: HIGHLIGHT,
-        strokeOpacity: active ? 1 : 0,
-        strokeWeight: 2,
-        cursor: "pointer",
-      };
-    });
-  }, [map, selectedZip, hoveredZips]);
+    if (!map) {
+      return;
+    }
+
+    map.data.setStyle(
+      (
+        feature,
+      ) => {
+        const zip =
+          normalizeZip(
+            feature.getProperty(
+              "zip",
+            ),
+          );
+
+        const active =
+          zip ===
+            normalizeZip(
+              selectedZip,
+            ) ||
+          hoveredZips.some(
+            (
+              hoveredZip,
+            ) =>
+              normalizeZip(
+                hoveredZip,
+              ) ===
+              zip,
+          );
+
+        return {
+          fillColor:
+            HIGHLIGHT,
+
+          fillOpacity:
+            active
+              ? 0.3
+              : 0.001,
+
+          strokeColor:
+            HIGHLIGHT,
+
+          strokeOpacity:
+            active
+              ? 1
+              : 0,
+
+          strokeWeight:
+            2,
+
+          cursor:
+            "pointer",
+        };
+      },
+    );
+  }, [
+    map,
+    selectedZip,
+    hoveredZips,
+  ]);
 }
+
+/*
+|--------------------------------------------------------------------------
+| Marker grouping
+|--------------------------------------------------------------------------
+*/
 
 function groupNearbyZips(
-  areas: ZipArea[],
-  zoom: number,
-  stack: { width: number; height: number },
+  areas:
+    ZipArea[],
+
+  zoom:
+    number,
+
+  stack: {
+    width:
+      number;
+
+    height:
+      number;
+  },
 ): Group[] {
-  const groups: { zips: ZipArea[]; x: number; y: number }[] = [];
-  for (const area of areas) {
-    const { x, y } = toScreenPixels(area, zoom);
-    const near = groups.find(
-      (group) =>
-        Math.abs(group.x - x) < stack.width &&
-        Math.abs(group.y - y) < stack.height,
-    );
-    if (near) near.zips.push(area);
-    else groups.push({ zips: [area], x, y });
-  }
-  return groups.map(({ zips }) => ({
-    key: zips.map((area) => area.zip).join("-"),
-    zips,
-    position: {
-      lat: average(zips.map((area) => area.lat)),
-      lng: average(zips.map((area) => area.lng)),
-    },
-  }));
-}
+  const groups: {
+    zips:
+      ZipArea[];
 
-// Web Mercator: a point's pixel position on the whole world map at `zoom`.
-function toScreenPixels({ lat, lng }: ZipArea, zoom: number) {
-  const size = 256 * 2 ** zoom;
-  const sin = Math.sin((lat * Math.PI) / 180);
-  return {
-    x: ((lng + 180) / 360) * size,
-    y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size,
-  };
-}
+    x:
+      number;
 
-function average(values: number[]) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
+    y:
+      number;
+  }[] = [];
 
-// A zip shows its services; a merged stack shows one card per zip.
-function cardsFor(group: Group, services: Service[]): Category[] {
-  if (group.zips.length > 1) {
-    return group.zips
-      .slice(0, MAX_CARDS)
-      .flatMap(
-        (area) => services.find((service) => service.zip === area.zip)?.category ?? [],
+  for (
+    const area of
+    areas
+  ) {
+    /*
+     * Ignore invalid coordinates rather than allowing
+     * one bad service to break every marker.
+     */
+    if (
+      !Number.isFinite(
+        area.lat,
+      ) ||
+      !Number.isFinite(
+        area.lng,
+      )
+    ) {
+      console.warn(
+        "[ServiceMap] Invalid area coordinates:",
+        area,
       );
-  }
-  return services
-    .filter((service) => service.zip === group.zips[0].zip)
-    .slice(0, MAX_CARDS)
-    .map((service) => service.category);
-}
 
-function zoomToZips(
-  map: google.maps.Map | null,
-  zips: ZipArea[],
-  phone: boolean,
-) {
-  if (!map) return;
-  const bounds = new google.maps.LatLngBounds();
-  zips.forEach((area) => bounds.extend({ lat: area.lat, lng: area.lng }));
-  map.fitBounds(
-    bounds,
-    phone
-      ? { top: 120, right: 50, bottom: 30, left: 50 }
-      : { top: 170, right: 90, bottom: 60, left: 90 },
+      continue;
+    }
+
+    const {
+      x,
+      y,
+    } =
+      toScreenPixels(
+        area,
+        zoom,
+      );
+
+    const near =
+      groups.find(
+        (
+          group,
+        ) =>
+          Math.abs(
+            group.x -
+              x,
+          ) <
+            stack.width &&
+          Math.abs(
+            group.y -
+              y,
+          ) <
+            stack.height,
+      );
+
+    if (near) {
+      near.zips.push(
+        area,
+      );
+    } else {
+      groups.push({
+        zips: [
+          area,
+        ],
+
+        x,
+
+        y,
+      });
+    }
+  }
+
+  return groups.map(
+    ({
+      zips,
+    }) => ({
+      key:
+        zips
+          .map(
+            (
+              area,
+            ) =>
+              normalizeZip(
+                area.zip,
+              ),
+          )
+          .join(
+            "-",
+          ),
+
+      zips,
+
+      position: {
+        lat:
+          average(
+            zips.map(
+              (
+                area,
+              ) =>
+                area.lat,
+            ),
+          ),
+
+        lng:
+          average(
+            zips.map(
+              (
+                area,
+              ) =>
+                area.lng,
+            ),
+          ),
+      },
+    }),
   );
 }
 
-// Desktop fits every zip; phones zoom in around the selected one.
-function initialBounds(
-  areas: ZipArea[],
-  selectedZip: string | null,
-  phone: boolean,
+function toScreenPixels(
+  {
+    lat,
+    lng,
+  }: ZipArea,
+
+  zoom:
+    number,
 ) {
-  const focus = areas.find((area) => area.zip === selectedZip) ?? areas[0];
-  const shown = phone && focus ? [focus] : areas;
-  if (!shown.length) {
-    return { north: 40.83, south: 40.78, east: -73.94, west: -73.98 };
-  }
-  const margin = phone ? 0.012 : 0;
-  const lats = shown.map((area) => area.lat);
-  const lngs = shown.map((area) => area.lng);
+  const size =
+    256 *
+    2 ** zoom;
+
+  const sin =
+    Math.sin(
+      (lat *
+        Math.PI) /
+        180,
+    );
+
   return {
-    north: Math.max(...lats) + margin,
-    south: Math.min(...lats) - margin,
-    east: Math.max(...lngs) + margin,
-    west: Math.min(...lngs) - margin,
-    // Cards hang above their point, so leave room at the top.
-    padding: phone
-      ? { top: 120, right: 30, bottom: 20, left: 30 }
-      : { top: 160, right: 80, bottom: 50, left: 80 },
+    x:
+      ((lng +
+        180) /
+        360) *
+      size,
+
+    y:
+      (0.5 -
+        Math.log(
+          (1 +
+            sin) /
+            (1 -
+              sin),
+        ) /
+          (4 *
+            Math.PI)) *
+      size,
   };
 }
 
-// Up to three cards fanned out; the front one carries the label.
+function average(
+  values:
+    number[],
+) {
+  if (
+    values.length ===
+    0
+  ) {
+    return 0;
+  }
+
+  return (
+    values.reduce(
+      (
+        sum,
+        value,
+      ) =>
+        sum +
+        value,
+      0,
+    ) /
+    values.length
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Match services to markers
+|--------------------------------------------------------------------------
+*/
+
+function cardsFor(
+  group:
+    Group,
+
+  services:
+    Service[],
+): Service[] {
+  const groupZips =
+    new Set(
+      group.zips.map(
+        (
+          area,
+        ) =>
+          normalizeZip(
+            area.zip,
+          ),
+      ),
+    );
+
+  /*
+   * Compare normalized ZIP strings on both sides.
+   */
+  return services
+    .filter(
+      (
+        service,
+      ) =>
+        groupZips.has(
+          normalizeZip(
+            service.zip,
+          ),
+        ),
+    )
+    .slice(
+      0,
+      MAX_CARDS,
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Zoom into merged markers
+|--------------------------------------------------------------------------
+*/
+
+function zoomToZips(
+  map:
+    | google.maps.Map
+    | null,
+
+  zips:
+    ZipArea[],
+
+  phone:
+    boolean,
+) {
+  if (!map) {
+    return;
+  }
+
+  const bounds =
+    new google.maps.LatLngBounds();
+
+  zips.forEach(
+    (
+      area,
+    ) => {
+      bounds.extend({
+        lat:
+          area.lat,
+
+        lng:
+          area.lng,
+      });
+    },
+  );
+
+  map.fitBounds(
+    bounds,
+
+    phone
+      ? {
+          top: 120,
+          right: 50,
+          bottom: 30,
+          left: 50,
+        }
+      : {
+          top: 170,
+          right: 90,
+          bottom: 60,
+          left: 90,
+        },
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Initial map bounds
+|--------------------------------------------------------------------------
+*/
+
+function initialBounds(
+  areas:
+    ZipArea[],
+
+  selectedZip:
+    string | null,
+
+  phone:
+    boolean,
+) {
+  const focus =
+    areas.find(
+      (
+        area,
+      ) =>
+        normalizeZip(
+          area.zip,
+        ) ===
+        normalizeZip(
+          selectedZip,
+        ),
+    ) ??
+    areas[0];
+
+  const shown =
+    phone &&
+    focus
+      ? [
+          focus,
+        ]
+      : areas;
+
+  if (
+    shown.length ===
+    0
+  ) {
+    return {
+      north:
+        40.83,
+
+      south:
+        40.68,
+
+      east:
+        -73.85,
+
+      west:
+        -74.05,
+    };
+  }
+
+  const margin =
+    phone
+      ? 0.012
+      : 0.005;
+
+  const lats =
+    shown.map(
+      (
+        area,
+      ) =>
+        area.lat,
+    );
+
+  const lngs =
+    shown.map(
+      (
+        area,
+      ) =>
+        area.lng,
+    );
+
+  return {
+    north:
+      Math.max(
+        ...lats,
+      ) +
+      margin,
+
+    south:
+      Math.min(
+        ...lats,
+      ) -
+      margin,
+
+    east:
+      Math.max(
+        ...lngs,
+      ) +
+      margin,
+
+    west:
+      Math.min(
+        ...lngs,
+      ) -
+      margin,
+
+    padding:
+      phone
+        ? {
+            top:
+              120,
+
+            right:
+              30,
+
+            bottom:
+              20,
+
+            left:
+              30,
+          }
+        : {
+            top:
+              160,
+
+            right:
+              80,
+
+            bottom:
+              50,
+
+            left:
+              80,
+          },
+  };
+}
+
+/*
+|--------------------------------------------------------------------------
+| Marker cards
+|--------------------------------------------------------------------------
+*/
+
 function CardStack({
   cards,
   label,
   selected,
 }: {
-  cards: Category[];
-  label: string;
-  selected: boolean;
+  cards:
+    Service[];
+
+  label:
+    string;
+
+  selected:
+    boolean;
 }) {
-  const [front, ...back] = cards;
+  /*
+   * If service matching somehow fails, still show
+   * a visible ZIP marker instead of rendering nothing.
+   */
+  if (
+    cards.length ===
+    0
+  ) {
+    return (
+      <EmptyCard
+        label={
+          label
+        }
+        selected={
+          selected
+        }
+      />
+    );
+  }
+
+  const [
+    front,
+    ...back
+  ] =
+    cards;
+
   return (
     <div className="relative">
-      {back.map((category, index) => (
-        <Card
-          key={index}
-          category={category}
-          className={cn(
-            "absolute inset-0",
-            index === 0 ? "-rotate-12" : "rotate-12",
-          )}
-        />
-      ))}
+      {back.map(
+        (
+          service,
+          index,
+        ) => (
+          <Card
+            key={
+              service.id
+            }
+            service={
+              service
+            }
+            className={cn(
+              "absolute inset-0",
+
+              index ===
+                0
+                ? "-rotate-12"
+                : "rotate-12",
+            )}
+          />
+        ),
+      )}
+
       <Card
-        category={front}
-        label={label}
-        selected={selected}
+        service={
+          front
+        }
+        label={
+          label
+        }
+        selected={
+          selected
+        }
         className="relative"
       />
     </div>
@@ -381,33 +1355,96 @@ function CardStack({
 }
 
 function Card({
-  category,
+  service,
   label,
   selected = false,
   className,
 }: {
-  category: Category | undefined;
-  label?: string;
-  selected?: boolean;
-  className?: string;
+  service:
+    Service;
+
+  label?:
+    string;
+
+  selected?:
+    boolean;
+
+  className?:
+    string;
+}) {
+  const imageUrl =
+    getServiceImageUrl(
+      service,
+    );
+
+  return (
+    <div
+      className={cn(
+        "w-[80px] origin-bottom rounded-[16px] bg-white p-[5px] shadow-[0_2px_8px_rgba(0,0,0,0.25)]",
+
+        "lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
+
+        selected &&
+          "ring-[3px] ring-xchg-blue",
+
+        className,
+      )}
+    >
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={
+            imageUrl
+          }
+          alt={
+            service.title
+          }
+          className="aspect-square w-full rounded-[12px] object-cover lg:rounded-[15px]"
+        />
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center rounded-[12px] bg-[#e9ecef] px-2 text-center text-[10px] text-black lg:rounded-[15px]">
+          {service.title}
+        </div>
+      )}
+
+      <p
+        title={
+          service.title
+        }
+        className="flex h-5 items-center justify-center truncate px-1 text-xs text-black lg:h-6 lg:text-[13px]"
+      >
+        {label ??
+          service.title}
+      </p>
+    </div>
+  );
+}
+
+function EmptyCard({
+  label,
+  selected,
+}: {
+  label:
+    string;
+
+  selected:
+    boolean;
 }) {
   return (
     <div
       className={cn(
-        "w-[80px] origin-bottom rounded-[16px] bg-white p-[5px] shadow-[0_2px_8px_rgba(0,0,0,0.25)] lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
-        selected && "ring-[3px] ring-xchg-blue",
-        className,
+        "w-[80px] origin-bottom rounded-[16px] bg-white p-[5px] shadow-[0_2px_8px_rgba(0,0,0,0.25)]",
+
+        "lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
+
+        selected &&
+          "ring-[3px] ring-xchg-blue",
       )}
     >
-      {category ? (
-        <ServiceArt
-          category={category}
-          className="aspect-square w-full rounded-[12px] lg:rounded-[15px]"
-          iconClassName="size-7 lg:size-10"
-        />
-      ) : (
-        <div className="aspect-square w-full rounded-[12px] bg-xchg-read lg:rounded-[15px]" />
-      )}
+      <div className="flex aspect-square w-full items-center justify-center rounded-[12px] bg-[#2ca3ff] px-2 text-center text-xs font-semibold text-white lg:rounded-[15px]">
+        {label}
+      </div>
+
       <p className="flex h-5 items-center justify-center text-xs text-black lg:h-6 lg:text-[13px]">
         {label}
       </p>
@@ -415,10 +1452,17 @@ function Card({
   );
 }
 
-function MapNotice({ children }: { children: ReactNode }) {
+function MapNotice({
+  children,
+}: {
+  children:
+    ReactNode;
+}) {
   return (
     <div className="flex size-full items-center justify-center bg-[#e9ecef] p-6 text-center text-sm text-xchg-gray">
-      <p className="max-w-xs">{children}</p>
+      <p className="max-w-xs">
+        {children}
+      </p>
     </div>
   );
 }

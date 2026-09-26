@@ -1,10 +1,8 @@
+import "server-only";
+
 import { ObjectId } from "mongodb";
 import { getMongo } from "@/lib/mongodb";
-
-const { db } = await getMongo();
-
-// Mock data for the XCHG UI until a real API exists. Components only depend
-// on these types, so swapping the source later shouldn't touch them.
+import boundaries from "@/lib/xchg/zip-boundaries.json";
 
 export type Category =
   | "Tutoring"
@@ -19,12 +17,25 @@ export type Category =
 export type Service = {
   id: string;
   title: string;
+
   category: Category;
+
   rating: number;
   ratingCount: number;
+
   location: string;
+
   zip: string;
+
   tags: string[];
+
+  images: string[];
+
+  description?: string;
+  price?: number;
+
+  userId?: string;
+  genreId?: string;
 };
 
 export type ZipArea = {
@@ -40,215 +51,396 @@ export type Notification = {
   read: boolean;
 };
 
-// Official zip center points from NYC Open Data. Outlines are in
-// zip-boundaries.json; regenerate both with scripts/zip-boundaries.mjs.
-export const zipAreas: ZipArea[] = [
-  { zip: "10024", neighborhood: "Upper West Side", lat: 40.78566, lng: -73.97127 },
-  { zip: "10025", neighborhood: "Manhattan Valley", lat: 40.79825, lng: -73.96834 },
-  { zip: "10026", neighborhood: "Central Harlem", lat: 40.80298, lng: -73.95353 },
-  { zip: "10027", neighborhood: "Morningside Heights", lat: 40.81266, lng: -73.95498 },
-  { zip: "10029", neighborhood: "East Harlem", lat: 40.79225, lng: -73.94733 },
-  { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8248, lng: -73.95021 },
-];
+type BoundaryFeature = {
+  type: "Feature";
 
-const documents = await db
-  .collection("services")
-  .find({})
-  .toArray();
+  properties?: {
+    zip?: string | number;
+    zipcode?: string | number;
+    ZIPCODE?: string | number;
 
-export const services = documents.map((service) => ({
-  id: service._id.toString(),
+    [key: string]: unknown;
+  };
 
-  title: service.title,
+  geometry?: {
+    type: string;
+    coordinates: unknown;
+  };
+};
 
-  rating: service.rating ?? 0,
-  ratingCount: service.ratingCount ?? 0,
+type BoundaryCollection = {
+  type: "FeatureCollection";
+  features: BoundaryFeature[];
+};
 
-  location: service.location ?? "",
-  tags: service.tags ?? [],
+const boundaryCollection =
+  boundaries as BoundaryCollection;
 
-  images: (service.images ?? []).map((imageId: ObjectId) =>
-    imageId.toString(),
-  ),
+function normalizeZip(
+  value: unknown,
+): string {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return "";
+  }
 
-  description: service.description,
-  price: service.price,
+  return String(value).trim();
+}
 
-  userId: service.userId?.toString(),
-  genreId: service.genreId?.toString(),
-}));
+function getBoundaryZip(
+  feature: BoundaryFeature,
+) {
+  return normalizeZip(
+    feature.properties?.zip ??
+      feature.properties?.zipcode ??
+      feature.properties?.ZIPCODE ??
+      "",
+  );
+}
+
+function collectCoordinates(
+  value: unknown,
+  result: Array<[number, number]>,
+) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+
+  if (
+    value.length >= 2 &&
+    typeof value[0] === "number" &&
+    typeof value[1] === "number"
+  ) {
+    result.push([
+      value[0],
+      value[1],
+    ]);
+
+    return;
+  }
+
+  for (const child of value) {
+    collectCoordinates(
+      child,
+      result,
+    );
+  }
+}
+
+function getZipCenter(
+  zip: string,
+): {
+  lat: number;
+  lng: number;
+} | null {
+  const feature =
+    boundaryCollection.features.find(
+      (feature) =>
+        getBoundaryZip(feature) ===
+        normalizeZip(zip),
+    );
+
+  if (!feature?.geometry) {
+    return null;
+  }
+
+  const coordinates: Array<
+    [number, number]
+  > = [];
+
+  collectCoordinates(
+    feature.geometry.coordinates,
+    coordinates,
+  );
+
+  if (!coordinates.length) {
+    return null;
+  }
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  for (const [
+    lng,
+    lat,
+  ] of coordinates) {
+    minLat = Math.min(
+      minLat,
+      lat,
+    );
+
+    maxLat = Math.max(
+      maxLat,
+      lat,
+    );
+
+    minLng = Math.min(
+      minLng,
+      lng,
+    );
+
+    maxLng = Math.max(
+      maxLng,
+      lng,
+    );
+  }
+
+  return {
+    lat:
+      (minLat +
+        maxLat) /
+      2,
+
+    lng:
+      (minLng +
+        maxLng) /
+      2,
+  };
+}
+
 /*
-export const services: Service[] = [
-  {
-    id: "guitar",
-    title: "Guitar Lessons",
-    category: "Music",
-    rating: 4.9,
-    ratingCount: 126,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["Beginner", "Acoustic", "Weekends", "Theory", "Electric", "Kids"],
-  },
-  {
-    id: "calculus",
-    title: "Calculus Tutoring",
-    category: "Tutoring",
-    rating: 4.8,
-    ratingCount: 88,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["Exams", "Remote", "Evenings", "AP", "College", "Weekly"],
-  },
-  {
-    id: "bike",
-    title: "Bike Tune-Ups",
-    category: "Repairs",
-    rating: 4.7,
-    ratingCount: 64,
-    location: "Manhattan Valley",
-    zip: "10025",
-    tags: ["Same day", "Parts", "Road", "Commuter", "Flats", "Pickup"],
-  },
-  {
-    id: "dog-walking",
-    title: "Dog Walking",
-    category: "Pets",
-    rating: 5.0,
-    ratingCount: 41,
-    location: "Upper West Side",
-    zip: "10024",
-    tags: ["Daily", "Big dogs", "Park", "Photos", "Puppies", "Weekends"],
-  },
-  {
-    id: "haircuts",
-    title: "Haircuts & Fades",
-    category: "Beauty",
-    rating: 4.6,
-    ratingCount: 203,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Walk-ins", "Fades", "Beards", "Kids", "Evenings", "Weekends"],
-  },
-  {
-    id: "portraits",
-    title: "Portrait Photos",
-    category: "Creative",
-    rating: 4.9,
-    ratingCount: 37,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Headshots", "Outdoor", "Edits", "Couples", "Events", "1 hour"],
-  },
-  {
-    id: "laptop",
-    title: "Laptop Repair",
-    category: "Tech",
-    rating: 4.5,
-    ratingCount: 72,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Screens", "Batteries", "Mac", "Windows", "Data", "Same week"],
-  },
-  {
-    id: "yoga",
-    title: "Yoga in the Park",
-    category: "Fitness",
-    rating: 4.8,
-    ratingCount: 58,
-    location: "Manhattan Valley",
-    zip: "10025",
-    tags: ["All levels", "Outdoor", "Mornings", "Mats", "Groups", "Weekly"],
-  },
-  {
-    id: "spanish",
-    title: "Spanish Practice",
-    category: "Tutoring",
-    rating: 4.7,
-    ratingCount: 29,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Speaking", "Remote", "Beginner", "Travel", "Weekly", "Evenings"],
-  },
-  {
-    id: "piano",
-    title: "Piano Lessons",
-    category: "Music",
-    rating: 4.9,
-    ratingCount: 95,
-    location: "Upper West Side",
-    zip: "10024",
-    tags: ["Kids", "Adults", "Classical", "Jazz", "Recitals", "In-home"],
-  },
-  {
-    id: "websites",
-    title: "Website Setup",
-    category: "Tech",
-    rating: 4.6,
-    ratingCount: 19,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Portfolio", "Domains", "Remote", "SEO", "Shops", "1 week"],
-  },
-  {
-    id: "cat-sitting",
-    title: "Cat Sitting",
-    category: "Pets",
-    rating: 4.9,
-    ratingCount: 33,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Overnight", "Meds", "Photos", "Holidays", "Plants", "Multi-cat"],
-  },
-  {
-    id: "braids",
-    title: "Braids & Twists",
-    category: "Beauty",
-    rating: 4.8,
-    ratingCount: 112,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Box braids", "Twists", "Kids", "Weekends", "Products", "Home visits"],
-  },
-  {
-    id: "assembly",
-    title: "Furniture Assembly",
-    category: "Repairs",
-    rating: 4.7,
-    ratingCount: 81,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["IKEA", "Same day", "Tools", "Mounting", "Shelves", "Evenings"],
-  },
-  {
-    id: "training",
-    title: "Personal Training",
-    category: "Fitness",
-    rating: 4.6,
-    ratingCount: 47,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Strength", "Beginner", "Nutrition", "Home", "Mornings", "Park"],
-  },
-  {
-    id: "murals",
-    title: "Murals & Signs",
-    category: "Creative",
-    rating: 4.8,
-    ratingCount: 15,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Storefronts", "Murals", "Lettering", "Design", "Outdoor", "Custom"],
-  },
-];
-*/
+ * Query MongoDB each time this function is called.
+ *
+ * No static service array exists anymore.
+ */
+export async function getServices(): Promise<Service[]> {
+  const { db } =
+    await getMongo();
+
+  const documents =
+    await db
+      .collection("services")
+      .find({})
+      .toArray();
+
+  const result =
+    documents
+      .map(
+        (
+          service,
+        ): Service => {
+          const zip =
+            normalizeZip(
+              service.zipCode ??
+                service.zip ??
+                "",
+            );
+
+          return {
+            id:
+              service._id.toString(),
+
+            title:
+              service.title ??
+              "",
+
+            category:
+              (service.category as Category) ??
+              "Tech",
+
+            rating:
+              Number(
+                service.rating ??
+                  0,
+              ),
+
+            ratingCount:
+              Number(
+                service.ratingCount ??
+                  0,
+              ),
+
+            location:
+              service.location ??
+              zip,
+
+            zip,
+
+            tags:
+              Array.isArray(
+                service.tags,
+              )
+                ? service.tags.map(
+                    (
+                      tag: unknown,
+                    ) =>
+                      String(
+                        tag,
+                      ),
+                  )
+                : [],
+
+            images: (
+              service.images ??
+              []
+            ).map(
+              (
+                image:
+                  | ObjectId
+                  | string,
+              ) =>
+                image.toString(),
+            ),
+
+            description:
+              service.description ??
+              "",
+
+            price:
+              Number(
+                service.price ??
+                  service.creditRate ??
+                  0,
+              ),
+
+            userId:
+              service.userId
+                ?.toString(),
+
+            genreId:
+              service.genreId
+                ?.toString(),
+          };
+        },
+      )
+      .filter(
+        (service) =>
+          service.zip !== "",
+      );
+
+  console.log(
+    "[XCHG] CURRENT SERVICES:",
+    result.map(
+      (service) => ({
+        title:
+          service.title,
+
+        zip:
+          service.zip,
+      }),
+    ),
+  );
+
+  return result;
+}
+
+/*
+ * zipAreas comes ONLY from the services passed into it.
+ *
+ * There is no predetermined ZIP list anymore.
+ */
+export function getZipAreas(
+  services: Service[],
+): ZipArea[] {
+  const zips =
+    [
+      ...new Set(
+        services.map(
+          (service) =>
+            normalizeZip(
+              service.zip,
+            ),
+        ),
+      ),
+    ].filter(Boolean);
+
+  console.log(
+    "[XCHG] CURRENT SERVICE ZIPS:",
+    zips,
+  );
+
+  return zips.flatMap(
+    (zip) => {
+      const center =
+        getZipCenter(zip);
+
+      if (!center) {
+        console.warn(
+          `[XCHG] ${zip} exists in MongoDB but is missing from zip-boundaries.json`,
+        );
+
+        return [];
+      }
+
+      const service =
+        services.find(
+          (service) =>
+            normalizeZip(
+              service.zip,
+            ) ===
+            zip,
+        );
+
+      return [
+        {
+          zip,
+
+          neighborhood:
+            service?.location ??
+            zip,
+
+          lat:
+            center.lat,
+
+          lng:
+            center.lng,
+        },
+      ];
+    },
+  );
+}
 
 export const notifications: Notification[] = [
-  { id: "n1", text: "Emily messaged you about Guitar Lessons", read: false },
-  { id: "n2", text: "New request: Calculus Tutoring", read: false },
-  { id: "n3", text: "Bike Tune-Ups got a 5★ review", read: true },
-  { id: "n4", text: "Alex wants to trade for Piano Lessons", read: false },
-  { id: "n5", text: "Dog Walking tomorrow at 9:00 AM", read: true },
-  { id: "n6", text: "Your profile is 80% complete", read: true },
-  { id: "n7", text: "3 new services near 10027", read: true },
-  { id: "n8", text: "Welcome to XCHG!", read: true },
+  {
+    id: "n1",
+    text: "Emily messaged you about Guitar Lessons",
+    read: false,
+  },
+
+  {
+    id: "n2",
+    text: "New request: Calculus Tutoring",
+    read: false,
+  },
+
+  {
+    id: "n3",
+    text: "Bike Tune-Ups got a 5★ review",
+    read: true,
+  },
+
+  {
+    id: "n4",
+    text: "Alex wants to trade for Piano Lessons",
+    read: false,
+  },
+
+  {
+    id: "n5",
+    text: "Dog Walking tomorrow at 9:00 AM",
+    read: true,
+  },
+
+  {
+    id: "n6",
+    text: "Your profile is 80% complete",
+    read: true,
+  },
+
+  {
+    id: "n7",
+    text: "New services near you",
+    read: true,
+  },
+
+  {
+    id: "n8",
+    text: "Welcome to XCHG!",
+    read: true,
+  },
 ];

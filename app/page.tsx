@@ -1,9 +1,18 @@
 import { requireSession } from "@/lib/session";
 import { Explorer } from "@/components/xchg/explorer";
-import { notifications, services, zipAreas } from "@/lib/xchg/data";
+import {
+  getServices,
+  getZipAreas,
+  notifications,
+} from "@/lib/xchg/data";
+
+export const dynamic =
+  "force-dynamic";
 
 export default async function Home() {
   await requireSession();
+  const services = await getServices();
+  const zipAreas = getZipAreas(services);
   return (
     <Explorer
       services={services}

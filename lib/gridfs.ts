@@ -1,7 +1,9 @@
-import { GridFSBucket, ObjectId } from "mongodb";
-import { getMongo } from "./mongodb";
+import "server-only";
 
-export async function getImageBucket(): Promise<GridFSBucket> {
+import { GridFSBucket, ObjectId } from "mongodb";
+import { getMongo } from "@/lib/mongodb";
+
+export async function getImageBucket() {
   const { db } = await getMongo();
 
   return new GridFSBucket(db, {
@@ -9,76 +11,54 @@ export async function getImageBucket(): Promise<GridFSBucket> {
   });
 }
 
-export async function uploadImage(file: File): Promise<ObjectId> {
-  if (!file.type.startsWith("image/")) {
-    throw new Error(`${file.name} is not an image.`);
-  }
-
+export async function uploadImage(file: File) {
   const bucket = await getImageBucket();
 
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const buffer = Buffer.from(
+    await file.arrayBuffer(),
+  );
 
-  const stream = bucket.openUploadStream(file.name, {
-    metadata: {
-      contentType: file.type,
+  return await new Promise<ObjectId>(
+    (resolve, reject) => {
+      const stream =
+        bucket.openUploadStream(
+          file.name,
+          {
+            metadata: {
+              contentType:
+                file.type ||
+                "application/octet-stream",
+            },
+          },
+        );
+
+      stream.on(
+        "error",
+        reject,
+      );
+
+      stream.on(
+        "finish",
+        () => {
+          resolve(stream.id);
+        },
+      );
+
+      stream.end(buffer);
     },
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    stream.on("finish", resolve);
-    stream.on("error", reject);
-    stream.end(buffer);
-  });
-
-  return stream.id;
-}
-
-/*
- * Pull a single image from GridFS
- */
-export async function getImage(
-  imageId: ObjectId
-): Promise<Buffer> {
-  const bucket = await getImageBucket();
-
-  const chunks: Buffer[] = [];
-
-  const stream = bucket.openDownloadStream(imageId);
-
-  return new Promise((resolve, reject) => {
-    stream.on("data", (chunk) => {
-      chunks.push(Buffer.from(chunk));
-    });
-
-    stream.on("end", () => {
-      resolve(Buffer.concat(chunks));
-    });
-
-    stream.on("error", reject);
-  });
-}
-
-/*
- * Pull every image belonging to a service
- */
-export async function getServiceImages(
-  service: { images: ObjectId[] }
-): Promise<Buffer[]> {
-  return Promise.all(
-    service.images.map((imageId) =>
-      getImage(imageId)
-    )
   );
 }
 
 export function getServiceImageUrls(
-  service: { images?: ObjectId[] }
+  service: {
+    images?: Array<
+      ObjectId | string
+    >;
+  },
 ): string[] {
-  if (!service.images) {
-    return [];
-  }
-
-  return service.images.map(
-    (imageId) => `/api/images/${imageId.toString()}`
-  );
+  return (
+    service.images ?? []
+  ).map((imageId) => {
+    return `/api/images/${imageId.toString()}`;
+  });
 }

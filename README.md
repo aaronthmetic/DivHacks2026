@@ -10,14 +10,14 @@ divhacks divhacks fahhhhh
 
 ## Getting started
 
-Requires Node.js 20.9 or newer.
+Requires Node.js 22.12 or newer.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Edit `app/page.tsx` and the page hot-reloads.
+Open [http://localhost:3000](http://localhost:3000). Edit `app/page.tsx` and the page hot-reloads. The home page requires sign-in, so complete [Authentication setup](#authentication-setup) (MongoDB replica set and auth secret) first.
 
 | Command | What it does |
 | --- | --- |
@@ -91,6 +91,59 @@ scripts/         standalone scripts (relay, zip boundaries)
 
 ## Environment variables
 
-Put secrets in `.env.local`, which is git-ignored. `.env.example` lists the variables the app expects.
+Put secrets in `.env.local`, which is git-ignored. Variables prefixed with `NEXT_PUBLIC_` are bundled for the browser. The Maps key is also sent to the browser by the home page; it is not a server secret.
 
-Only variables prefixed with `NEXT_PUBLIC_` are bundled for the browser automatically. The one exception here is `GOOGLE_MAPS_API_KEY`: the page hands it to the map, because Google's Maps JavaScript API runs in the browser. Restrict that key to your domains in Google Cloud.
+## Authentication setup
+
+Authentication uses Better Auth, the native MongoDB adapter, and database sessions. Start with Node.js 22.12+ (also required by the MongoDB test server).
+
+1. Copy `.env.example` to `.env.local` and fill in the values. Generate `BETTER_AUTH_SECRET` with `openssl rand -base64 32`.
+2. Use MongoDB Atlas or a local MongoDB **replica set**. Transactions keep users, credential accounts, and sessions consistent; a standalone MongoDB server is not supported. Set both `MONGODB_URI` and `MONGODB_DB`.
+3. Run `npm run db:indexes`. The app also ensures the authentication indexes on its first database connection and builds the exchange indexes in the background (failures are logged and don't block sign-in). The database user needs permission to create indexes. Existing duplicate identifiers cause setup to fail rather than silently accepting duplicates.
+4. In Google Cloud Console, configure the OAuth consent screen and a **Web application** OAuth client. Add test users while the consent screen is in testing mode. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+5. Add `http://localhost:3000` as an authorized JavaScript origin and `http://localhost:3000/api/auth/callback/google` as the redirect URI. Add the corresponding HTTPS origin and callback for deployment; set `BETTER_AUTH_URL` to that origin. Production requires HTTPS.
+6. Run `npm run dev`. Without Google credentials, password authentication still works and the Google button is hidden. No database or OAuth connection is required for a production build.
+
+`npm run start` runs in production mode and requires an HTTPS `BETTER_AUTH_URL`, even locally. Use `npm run dev` for HTTP localhost, or terminate HTTPS at a local reverse proxy. Keep the browser origin, OAuth redirect URI, and `BETTER_AUTH_URL` consistent (including the port); origin mismatches are rejected.
+
+Set `GOOGLE_MAPS_API_KEY` for the home-page map. In Google Cloud, restrict this browser key to your website HTTP referrers and the Maps JavaScript API, and set quotas. Never reuse a server API key here. Advanced markers also require a JavaScript map ID: set `GOOGLE_MAPS_MAP_ID` for deployment (the component uses Google’s `DEMO_MAP_ID` when unset). Restart the dev server after changing environment variables.
+
+Deploy behind a trusted proxy that overwrites client IP headers (such as the hosting platform's standard proxy). Better Auth uses these headers for shared database-backed authentication rate limits; do not expose an origin that accepts arbitrary forwarded IPs from clients. Set `AUTH_IP_ADDRESS_HEADERS` to the header(s) your ingress overwrites (default `x-forwarded-for`). For a multi-hop forwarded chain, set `AUTH_TRUSTED_PROXIES` to the actual proxy IPs/CIDRs; the library walks the chain from right to left. Do not trust all addresses or choose a header clients can supply. Without trusted proxy configuration, multi-hop chains share a fallback rate-limit bucket: verify distinct client IPs produce distinct buckets in staging. These values depend on your deployment and cannot be guessed safely.
+
+All application instances must share the MongoDB database, auth secret, and public URL.
+
+### Account behavior
+
+- `/register`: first name, last name, email, phone number, and a 12–128 character password are required. Passwords are hashed by Better Auth. Email is trimmed and lowercased; phone numbers use E.164 with an explicit country selector (US initially selected).
+- `/login`: email/password, phone/password, or Google OAuth. Email and phone are unique. Google accounts do not have passwords. Accounts are never automatically linked by matching email or phone.
+- `/complete-profile`: first-time Google users confirm their imported names and enter a phone number. Both names and phone are required before protected application access. Returning Google logins preserve edited names.
+- `/`: authenticated service explorer; signed-out visitors are redirected to `/login`. Successful login and completed onboarding return here.
+- `/profile`: authenticated account page with name editing, read-only email/phone, and logout. New protected server pages should use `requireSession()` from `lib/session.ts`; incomplete accounts are redirected to onboarding. Session renewal is mounted once in the root layout, so new pages need nothing else.
+- Sessions expire after seven days and renew after a day of use via a browser session request on navigation, focus, and every five visible minutes. Server-only session reads do not extend expiry. Logout deletes the current database session. Session data is not cached in client-readable cookies.
+- Phone numbers are **unverified identifiers**, not proof of ownership. They are not used for recovery or linking. SMS, OTP login, email verification, password recovery, email/phone changes, adding passwords to Google accounts, and account linking are deferred and their auth endpoints are blocked.
+
+### Profile API
+
+Both endpoints require a valid session cookie, an `Origin` matching `BETTER_AUTH_URL`, and JSON. They update only the current user and allow at most 20 requests per minute per user.
+
+| Endpoint | Body | Behavior |
+| --- | --- | --- |
+| `PATCH /api/profile` | `{ firstName, lastName }` | Requires a completed profile; derives display name server-side. |
+| `POST /api/profile/complete` | `{ firstName, lastName, phoneNumber }` | Completes an incomplete profile once; phone must include `+` and country code. |
+
+Success returns `{ success: true }`. Errors return `{ error: { code, message } }` with 400 (validation), 401 (missing session), 403 (origin/incomplete profile), 409 (conflict), 429 (rate limit), or 503 (unavailable). Verification flags, completion timestamps, and user IDs cannot be set by the client. The library's general `/update-user` endpoint is disabled so these restrictions also apply to direct API calls.
+
+Indexes enforce unique email, populated phone number, provider/account identity, session token, and rate-limit key. Session and verification expiration indexes support cleanup; session expiry is checked by the auth library without waiting for cleanup. New OAuth access and refresh tokens are encrypted with the auth secret; Google ID tokens are not stored. Existing plaintext OAuth tokens are not retroactively encrypted; before deploying over an existing installation, inventory and migrate those tokens or revoke them and require a fresh Google login. Keep the auth secret stable and backed up. There is no existing-user migration.
+
+### Verification
+
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Tests start an isolated, temporary MongoDB replica set and do not touch `.env.local` or your application database. The first run downloads a MongoDB binary and needs network access; subsequent runs use the cached binary. OAuth tests simulate Google's remote token/profile responses while exercising the real state, callback, session, and account flow.
+
+For a live smoke test, register an account, log out, log in once with email and once with phone, edit names, and log out again. Then use a new Google account: confirm names, add a unique phone, and verify that later Google logins preserve name edits. Check that signing in through Google with an existing password account's email returns an error rather than linking accounts. Live Google testing requires your configured credentials and consent-screen test user.

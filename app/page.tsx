@@ -1,7 +1,9 @@
+import { requireSession } from "@/lib/session";
 import { Explorer } from "@/components/xchg/explorer";
 import { notifications, services, zipAreas } from "@/lib/xchg/data";
 
-export default function Home() {
+export default async function Home() {
+  await requireSession();
   return (
     <Explorer
       services={services}

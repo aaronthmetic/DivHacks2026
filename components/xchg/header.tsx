@@ -77,9 +77,9 @@ export function Header({
             <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-xchg-dot ring-2 ring-xchg-navy" />
           )}
         </button>
-        <button type="button" aria-label="Profile" className="text-white">
+        <Link href="/profile" aria-label="Profile" className="text-white">
           <ProfileIcon className="size-[46px]" />
-        </button>
+        </Link>
       </div>
     </header>
   );

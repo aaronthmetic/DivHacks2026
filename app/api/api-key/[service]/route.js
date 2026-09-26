@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getMongo } from "@/lib/mongodb";
+
 
 const API_KEYS = {
   googleMaps: process.env.GOOGLE_MAPS_API_KEY,

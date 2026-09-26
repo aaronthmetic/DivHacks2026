@@ -1,326 +1,857 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import markerThing from "../public/images/markerTest.png"
 
 export default function GoogleMap() {
   const mapRef = useRef(null);
   const googleMapRef = useRef(null);
+
+  // Stores all ZIP markers/features
   const markersRef = useRef([]);
 
-  /**
-   * Add a marker with a custom icon and click popup.
-   *
-   * @param {number} lat
-   * @param {number} lng
-   * @param {string} title
-   * @param {string} iconUrl - URL/path for marker icon
-   * @param {string} imageUrl - URL/path for popup image
-   */
-  function addMarker(
-  lat,
-  lng,
-  title = "",
-  iconUrl = "/markers/default-marker.png",
-  imageUrls = []
-) {
-  if (!googleMapRef.current || !window.google?.maps) {
-    console.error("Google Map has not loaded yet.");
-    return;
-  }
+  // Stores currently selected marker data
+  const selectedMarkerRef = useRef(null);
 
-  const marker = new window.google.maps.Marker({
-    position: { lat, lng },
-    map: googleMapRef.current,
-    title,
-
-    icon: {
-      url: iconUrl,
-      scaledSize: new window.google.maps.Size(40, 40),
-      anchor: new window.google.maps.Point(20, 40),
-    },
-  });
-
-  // Each marker gets a unique ID so multiple galleries can exist.
-  const galleryId =
-    "gallery-" + Math.random().toString(36).substring(2, 9);
-
-  const galleryHtml =
-    imageUrls.length > 0
-      ? `
-        <div
-          style="
-            position: relative;
-            width: 280px;
-            height: 180px;
-            overflow: hidden;
-            border-radius: 8px;
-          "
-        >
-          <img
-            id="${galleryId}-image"
-            src="${imageUrls[0]}"
-            alt="${title}"
-            style="
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-            "
-          />
-
-          ${
-            imageUrls.length > 1
-              ? `
-                <button
-                  id="${galleryId}-prev"
-                  style="
-                    position: absolute;
-                    left: 8px;
-                    top: 50%;
-                    transform: translateY(-50%);
-
-                    width: 34px;
-                    height: 34px;
-
-                    border: none;
-                    border-radius: 50%;
-
-                    background: rgba(0, 0, 0, 0.6);
-                    color: white;
-
-                    font-size: 20px;
-                    cursor: pointer;
-
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                  "
-                >
-                  &#10094;
-                </button>
-
-                <button
-                  id="${galleryId}-next"
-                  style="
-                    position: absolute;
-                    right: 8px;
-                    top: 50%;
-                    transform: translateY(-50%);
-
-                    width: 34px;
-                    height: 34px;
-
-                    border: none;
-                    border-radius: 50%;
-
-                    background: rgba(0, 0, 0, 0.6);
-                    color: white;
-
-                    font-size: 20px;
-                    cursor: pointer;
-
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                  "
-                >
-                  &#10095;
-                </button>
-
-                <div
-                  id="${galleryId}-counter"
-                  style="
-                    position: absolute;
-                    bottom: 8px;
-                    left: 50%;
-                    transform: translateX(-50%);
-
-                    background: rgba(0, 0, 0, 0.6);
-                    color: white;
-
-                    padding: 3px 8px;
-                    border-radius: 10px;
-                    font-size: 12px;
-                  "
-                >
-                  1 / ${imageUrls.length}
-                </div>
-              `
-              : ""
-          }
-        </div>
-      `
-      : "";
-
-  const infoWindowContent = `
-    <div style="width: 280px; padding: 4px;">
-      ${galleryHtml}
-
-      <h3
-        style="
-          margin: 8px 0 0 0;
-          font-size: 16px;
-        "
-      >
-        ${title}
-      </h3>
-    </div>
-  `;
-
-  const infoWindow = new window.google.maps.InfoWindow({
-    content: infoWindowContent,
-  });
-
-  // Add carousel functionality once the InfoWindow DOM exists.
-  infoWindow.addListener("domready", () => {
-    if (imageUrls.length <= 1) return;
-
-    const image = document.getElementById(`${galleryId}-image`);
-    const prevButton = document.getElementById(`${galleryId}-prev`);
-    const nextButton = document.getElementById(`${galleryId}-next`);
-    const counter = document.getElementById(`${galleryId}-counter`);
-
-    if (!image || !prevButton || !nextButton) return;
-
-    let currentImage = 0;
-
-    function updateImage() {
-      image.src = imageUrls[currentImage];
-
-      if (counter) {
-        counter.textContent =
-          `${currentImage + 1} / ${imageUrls.length}`;
-      }
-    }
-
-    prevButton.onclick = (event) => {
-      event.stopPropagation();
-
-      currentImage =
-        (currentImage - 1 + imageUrls.length) %
-        imageUrls.length;
-
-      updateImage();
-    };
-
-    nextButton.onclick = (event) => {
-      event.stopPropagation();
-
-      currentImage =
-        (currentImage + 1) %
-        imageUrls.length;
-
-      updateImage();
-    };
-  });
-
-  marker.addListener("click", () => {
-    infoWindow.open({
-      anchor: marker,
-      map: googleMapRef.current,
-    });
-  });
-
-  markersRef.current.push(marker);
-
-  return marker;
-}
+  // Stores currently selected ZIP code
+  const selectedZipCodeRef = useRef(null);
 
   useEffect(() => {
-    async function getApiKey(service) {
-  const response = await fetch(`/api/api-key/${service}`);
+    let cancelled = false;
 
-  if (!response.ok) {
-    throw new Error(`Failed to retrieve API key for ${service}`);
+    async function initializeMap() {
+      try {
+        // =================================================
+        // GET GOOGLE MAPS API KEY
+        // =================================================
+
+        const response = await fetch(
+          "/api/api-key/googleMaps"
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            "Failed to retrieve Google Maps API key"
+          );
+        }
+
+        const { apiKey } = await response.json();
+
+        if (!apiKey) {
+          throw new Error(
+            "Google Maps API key was not returned"
+          );
+        }
+
+        // =================================================
+        // LOAD GOOGLE MAPS
+        // =================================================
+
+        if (!window.google?.maps) {
+          await loadGoogleMaps(apiKey);
+        }
+
+        if (cancelled || !mapRef.current) {
+          return;
+        }
+
+        // =================================================
+        // MAP STYLING
+        // =================================================
+
+        const mapStyles = [
+          // Hide landmarks / businesses / POIs
+          {
+            featureType: "poi",
+            elementType: "all",
+            stylers: [
+              {
+                visibility: "off",
+              },
+            ],
+          },
+
+          // Hide transit stations
+          {
+            featureType: "transit.station",
+            elementType: "all",
+            stylers: [
+              {
+                visibility: "off",
+              },
+            ],
+          },
+
+          // Keep administrative labels
+          {
+            featureType: "administrative",
+            elementType: "labels",
+            stylers: [
+              {
+                visibility: "on",
+              },
+            ],
+          },
+
+          // Keep city labels
+          {
+            featureType: "administrative.locality",
+            elementType: "labels",
+            stylers: [
+              {
+                visibility: "on",
+              },
+            ],
+          },
+
+          // Keep neighborhood labels
+          {
+            featureType: "administrative.neighborhood",
+            elementType: "labels",
+            stylers: [
+              {
+                visibility: "on",
+              },
+            ],
+          },
+
+          // Keep road names
+          {
+            featureType: "road",
+            elementType: "labels",
+            stylers: [
+              {
+                visibility: "on",
+              },
+            ],
+          },
+        ];
+
+        // =================================================
+        // CREATE MAP
+        // =================================================
+
+        const map = new window.google.maps.Map(
+  mapRef.current,
+  {
+    center: {
+      lat: 40.7128,
+      lng: -74.006,
+    },
+
+    zoom: 11,
+
+    // Limit zooming
+    minZoom: 10,
+    maxZoom: 18,
+
+    clickableIcons: false,
+
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+
+    styles: mapStyles,
   }
+);
 
-  const data = await response.json();
+        googleMapRef.current = map;
 
-  return data.apiKey;
-}
-    async function loadMap() {
-  try {
-    const apiKey = await getApiKey("googleMaps");
+        // =================================================
+        // ADD ZIP MARKERS
+        // =================================================
 
-    if (window.google?.maps) {
-      initializeMap();
-      return;
+        await Promise.all([
+          addNYCZipMarker(
+            "10001",
+            "Chelsea",
+            "/images/zealand.png"
+          ),
+
+          // Add additional markers here:
+          //
+          // addNYCZipMarker(
+          //   "10002",
+          //   "Lower East Side",
+          //   "/images/lower-east-side.jpg"
+          // ),
+          //
+          // addNYCZipMarker(
+          //   "11201",
+          //   "Downtown Brooklyn",
+          //   "/images/brooklyn.jpg"
+          // ),
+        ]);
+      } catch (error) {
+        console.error(
+          "Failed to initialize Google Map:",
+          error
+        );
+      }
     }
 
-    const script = document.createElement("script");
+    initializeMap();
 
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    // =================================================
+    // CLEANUP
+    // =================================================
 
-    script.async = true;
-    script.defer = true;
+    return () => {
+      cancelled = true;
 
-    script.addEventListener("load", initializeMap);
+      markersRef.current.forEach(
+        ({
+          marker,
+          zipFeature,
+          listeners = [],
+        }) => {
+          // Remove marker
+          marker?.setMap(null);
 
-    document.head.appendChild(script);
-  } catch (error) {
-    console.error("Google Maps failed to load:", error);
-  }
-}
+          // Remove event listeners
+          listeners.forEach((listener) => {
+            listener?.remove();
+          });
 
-    function initializeMap() {
-      if (!mapRef.current || !window.google?.maps) {
-        return;
-      }
-
-      const startingLocation = {
-        lat: 40.7128,
-        lng: -74.006,
-      };
-
-      googleMapRef.current = new window.google.maps.Map(
-        mapRef.current,
-        {
-          center: startingLocation,
-          zoom: 13,
-
-          // Prevent clicking Google's built-in POIs/icons
-          clickableIcons: false,
-
-          // Optional controls
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
+          // Remove ZIP GeoJSON
+          if (
+            zipFeature &&
+            googleMapRef.current
+          ) {
+            googleMapRef.current.data.remove(
+              zipFeature
+            );
+          }
         }
       );
 
-      // Example marker
-      addMarker(
-  40.7128,
-  -74.006,
-  "Example Location",
-  markerThing,
-  [
-    "/images/location-1.jpg",
-    "/images/location-2.jpg",
-    "/images/location-3.jpg",
-    "/images/location-4.jpg",
-  ]
-);
-    }
-
-    loadMap();
-
-    return () => {
-      markersRef.current.forEach((marker) => {
-        marker.setMap(null);
-      });
-
       markersRef.current = [];
+      selectedMarkerRef.current = null;
+      selectedZipCodeRef.current = null;
+      googleMapRef.current = null;
     };
   }, []);
+
+  // =====================================================
+  // LOAD GOOGLE MAPS SCRIPT
+  // =====================================================
+
+  function loadGoogleMaps(apiKey) {
+    return new Promise((resolve, reject) => {
+      // Already loaded
+      if (window.google?.maps) {
+        resolve();
+        return;
+      }
+
+      // Check if script already exists
+      const existingScript =
+        document.querySelector(
+          'script[data-google-maps="true"]'
+        );
+
+      if (existingScript) {
+        existingScript.addEventListener(
+          "load",
+          resolve,
+          { once: true }
+        );
+
+        existingScript.addEventListener(
+          "error",
+          reject,
+          { once: true }
+        );
+
+        return;
+      }
+
+      // Create Google Maps script
+      const script =
+        document.createElement("script");
+
+      script.src =
+        `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+
+      script.async = true;
+      script.defer = true;
+
+      script.dataset.googleMaps = "true";
+
+      script.onload = resolve;
+
+      script.onerror = () => {
+        reject(
+          new Error(
+            "Failed to load Google Maps"
+          )
+        );
+      };
+
+      document.head.appendChild(script);
+    });
+  }
+
+  // =====================================================
+  // FETCH NYC ZIP DATA
+  // =====================================================
+
+  async function addNYCZipMarker(
+    zipCode,
+    title,
+    imageUrl,
+    options = {}
+  ) {
+    try {
+      const response = await fetch(
+        `/api/zipcode/${zipCode}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Could not load ZIP ${zipCode}`
+        );
+      }
+
+      const data = await response.json();
+
+      return addZipMarker({
+        zipCode,
+        title,
+        imageUrl,
+
+        geometry: data.geometry,
+        center: data.center,
+
+        // Image scaling configuration
+        baseZoom: options.baseZoom ?? 11,
+        baseMarkerSize:
+          options.baseMarkerSize ?? 80,
+        minMarkerSize:
+          options.minMarkerSize ?? 30,
+        maxMarkerSize:
+          options.maxMarkerSize ?? 160,
+        zoomScale:
+          options.zoomScale ?? 0.35,
+      });
+    } catch (error) {
+      console.error(
+        `Failed to add ZIP ${zipCode}:`,
+        error
+      );
+
+      return null;
+    }
+  }
+
+  // =====================================================
+  // ADD ZIP MARKER
+  // =====================================================
+
+  function addZipMarker({
+    zipCode,
+    title = "",
+    imageUrl = "/markers/default-marker.png",
+
+    geometry,
+    center,
+
+    baseZoom = 11,
+    baseMarkerSize = 80,
+    minMarkerSize = 30,
+    maxMarkerSize = 160,
+    zoomScale = 0.35,
+  }) {
+    const map = googleMapRef.current;
+
+    if (!map || !window.google?.maps) {
+      console.error(
+        "Google Maps is not initialized."
+      );
+
+      return;
+    }
+
+    if (!geometry) {
+      console.error(
+        `No geometry found for ZIP ${zipCode}`
+      );
+
+      return;
+    }
+
+    // =================================================
+    // PREPARE GEOJSON
+    // =================================================
+
+    const filledGeometry =
+      removePolygonHoles(geometry);
+
+    const features =
+      map.data.addGeoJson({
+        type: "Feature",
+
+        properties: {
+          zipCode,
+          title,
+        },
+
+        geometry: filledGeometry,
+      });
+
+    const zipFeature = features[0];
+
+    if (!zipFeature) {
+      console.error(
+        `Failed to create ZIP feature for ${zipCode}`
+      );
+
+      return;
+    }
+
+    // =================================================
+    // ZIP STYLING
+    // =================================================
+
+    function setDefaultStyle() {
+      map.data.overrideStyle(
+        zipFeature,
+        {
+          fillColor: "#3b82f6",
+
+          // Nearly invisible but keeps entire ZIP
+          // polygon clickable.
+          fillOpacity: 0.001,
+
+          strokeColor: "#2563eb",
+          strokeOpacity: 0,
+          strokeWeight: 2,
+
+          clickable: true,
+          cursor: "pointer",
+        }
+      );
+    }
+
+    function showHighlight() {
+      map.data.overrideStyle(
+        zipFeature,
+        {
+          fillColor: "#3b82f6",
+          fillOpacity: 0.35,
+
+          strokeColor: "#2563eb",
+          strokeOpacity: 1,
+          strokeWeight: 2,
+
+          clickable: true,
+          cursor: "pointer",
+        }
+      );
+    }
+
+    function hideHighlight() {
+      setDefaultStyle();
+    }
+
+    setDefaultStyle();
+
+    // =================================================
+    // DETERMINE MARKER POSITION
+    // =================================================
+
+    const hasValidCenter =
+      center &&
+      Number.isFinite(
+        Number(center.lat)
+      ) &&
+      Number.isFinite(
+        Number(center.lng)
+      );
+
+    const markerPosition =
+      hasValidCenter
+        ? {
+            lat: Number(center.lat),
+            lng: Number(center.lng),
+          }
+        : getGeometryCenter(
+            filledGeometry
+          );
+
+    // =================================================
+    // MARKER IMAGE SCALING
+    // =================================================
+
+    function getMarkerSize() {
+      const zoom =
+        map.getZoom() ?? baseZoom;
+
+      // Scale image according to map zoom.
+      //
+      // Higher zoom = larger image.
+      // Lower zoom = smaller image.
+      const scale = Math.pow(
+        2,
+        (zoom - baseZoom) *
+          zoomScale
+      );
+
+      return Math.max(
+        minMarkerSize,
+        Math.min(
+          maxMarkerSize,
+          baseMarkerSize * scale
+        )
+      );
+    }
+
+    function createMarkerIcon() {
+      const size = getMarkerSize();
+
+      return {
+        url: imageUrl,
+
+        // Always square
+        scaledSize:
+          new window.google.maps.Size(
+            size,
+            size
+          ),
+
+        // Center image over coordinate
+        anchor:
+          new window.google.maps.Point(
+            size / 2,
+            size / 2
+          ),
+      };
+    }
+
+    // =================================================
+    // CREATE IMAGE MARKER
+    // =================================================
+
+    const marker =
+      new window.google.maps.Marker({
+        map,
+
+        position: markerPosition,
+
+        title:
+          title ||
+          `ZIP ${zipCode}`,
+
+        icon: createMarkerIcon(),
+
+        zIndex: 10,
+      });
+
+    // =================================================
+    // SCALE IMAGE WHEN MAP ZOOMS
+    // =================================================
+
+    const zoomListener =
+      map.addListener(
+        "zoom_changed",
+        () => {
+          marker.setIcon(
+            createMarkerIcon()
+          );
+        }
+      );
+
+    // =================================================
+    // SELECTION STATE
+    // =================================================
+
+    let isSelected = false;
+
+    const markerData = {
+      marker,
+      zipFeature,
+      zipCode,
+
+      // ---------------------------------------------
+      // SELECT
+      // ---------------------------------------------
+
+      select() {
+        // Deselect previously selected ZIP
+        if (
+          selectedMarkerRef.current &&
+          selectedMarkerRef.current !==
+            markerData
+        ) {
+          selectedMarkerRef.current.deselect();
+        }
+
+        isSelected = true;
+
+        selectedMarkerRef.current =
+          markerData;
+
+        // Store selected ZIP code
+        selectedZipCodeRef.current =
+          zipCode;
+
+        console.log(
+          "Selected ZIP:",
+          selectedZipCodeRef.current
+        );
+
+        showHighlight();
+      },
+
+      // ---------------------------------------------
+      // DESELECT
+      // ---------------------------------------------
+
+      deselect() {
+        isSelected = false;
+
+        hideHighlight();
+
+        if (
+          selectedMarkerRef.current ===
+          markerData
+        ) {
+          selectedMarkerRef.current =
+            null;
+        }
+
+        if (
+          selectedZipCodeRef.current ===
+          zipCode
+        ) {
+          selectedZipCodeRef.current =
+            null;
+        }
+      },
+
+      // ---------------------------------------------
+      // TOGGLE
+      // ---------------------------------------------
+
+      toggle() {
+        if (isSelected) {
+          markerData.deselect();
+        } else {
+          markerData.select();
+        }
+      },
+
+      get selected() {
+        return isSelected;
+      },
+    };
+
+    // =================================================
+    // IMAGE MARKER EVENTS
+    // =================================================
+
+    marker.addListener(
+      "mouseover",
+      () => {
+        showHighlight();
+      }
+    );
+
+    marker.addListener(
+      "mouseout",
+      () => {
+        if (!isSelected) {
+          hideHighlight();
+        }
+      }
+    );
+
+    marker.addListener(
+      "click",
+      () => {
+        markerData.toggle();
+      }
+    );
+
+    // =================================================
+    // ZIP AREA EVENTS
+    // =================================================
+
+    // Hover anywhere inside ZIP
+    const zipMouseOverListener =
+      map.data.addListener(
+        "mouseover",
+        (event) => {
+          if (
+            event.feature !==
+            zipFeature
+          ) {
+            return;
+          }
+
+          showHighlight();
+        }
+      );
+
+    // Leave ZIP
+    const zipMouseOutListener =
+      map.data.addListener(
+        "mouseout",
+        (event) => {
+          if (
+            event.feature !==
+            zipFeature
+          ) {
+            return;
+          }
+
+          if (!isSelected) {
+            hideHighlight();
+          }
+        }
+      );
+
+    // Click anywhere inside ZIP
+    const zipClickListener =
+      map.data.addListener(
+        "click",
+        (event) => {
+          if (
+            event.feature !==
+            zipFeature
+          ) {
+            return;
+          }
+
+          markerData.toggle();
+        }
+      );
+
+    // =================================================
+    // STORE LISTENERS
+    // =================================================
+
+    markerData.listeners = [
+      zoomListener,
+      zipMouseOverListener,
+      zipMouseOutListener,
+      zipClickListener,
+    ];
+
+    // =================================================
+    // STORE MARKER
+    // =================================================
+
+    markersRef.current.push(
+      markerData
+    );
+
+    return markerData;
+  }
+
+  // =====================================================
+  // REMOVE POLYGON HOLES
+  // =====================================================
+
+  function removePolygonHoles(
+    geometry
+  ) {
+    if (!geometry) {
+      return geometry;
+    }
+
+    // Standard Polygon
+    if (
+      geometry.type === "Polygon"
+    ) {
+      return {
+        type: "Polygon",
+
+        // First ring is exterior boundary.
+        // Remaining rings are holes.
+        coordinates: [
+          geometry.coordinates[0],
+        ],
+      };
+    }
+
+    // MultiPolygon
+    if (
+      geometry.type ===
+      "MultiPolygon"
+    ) {
+      return {
+        type: "MultiPolygon",
+
+        // Keep exterior ring of each polygon.
+        coordinates:
+          geometry.coordinates.map(
+            (polygon) => [
+              polygon[0],
+            ]
+          ),
+      };
+    }
+
+    return geometry;
+  }
+
+  // =====================================================
+  // GET FALLBACK GEOMETRY CENTER
+  // =====================================================
+
+  function getGeometryCenter(
+    geometry
+  ) {
+    const bounds =
+      new window.google.maps.LatLngBounds();
+
+    function processCoordinates(
+      coordinates
+    ) {
+      // GeoJSON coordinate:
+      //
+      // [longitude, latitude]
+
+      if (
+        typeof coordinates?.[0] ===
+          "number" &&
+        typeof coordinates?.[1] ===
+          "number"
+      ) {
+        bounds.extend({
+          lat: coordinates[1],
+          lng: coordinates[0],
+        });
+
+        return;
+      }
+
+      if (
+        Array.isArray(coordinates)
+      ) {
+        coordinates.forEach(
+          processCoordinates
+        );
+      }
+    }
+
+    processCoordinates(
+      geometry.coordinates
+    );
+
+    return bounds.getCenter();
+  }
+
+  // =====================================================
+  // RENDER MAP
+  // =====================================================
 
   return (
     <div
       ref={mapRef}
       style={{
         width: "100%",
-        height: "500px",
+        height: "100vh",
       }}
     />
   );

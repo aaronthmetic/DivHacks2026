@@ -1,3 +1,4 @@
+import { createExchangeService } from "./exchange-service";
 import { MongoServerError, ObjectId, type Db } from "mongodb";
 import type { Auth } from "./auth-config";
 import { conflictMessage, InputError, isProfileComplete, names, normalizePhone, objectBody, onlyFields } from "./auth-validation";
@@ -30,16 +31,22 @@ export async function updateProfile(request: Request, auth: Auth, db: Db, origin
       updatedAt: new Date(),
       ...(complete ? { phoneNumber: normalizePhone(body.phoneNumber), phoneNumberVerified: false, profileCompletedAt: new Date() } : {}),
     };
-    // Conditional update makes profile completion one-time, even under concurrent requests.
-    const result = await db.collection("user").updateOne(
-      { _id: new ObjectId(session.user.id), ...(complete ? { profileCompletedAt: null } : {}) },
-      { $set: updates },
-    );
-    if (result.matchedCount !== 1) return apiError(409, "PROFILE_CHANGED", "Your profile changed. Refresh the page and try again.");
+    await db.client.withSession((transactionSession) => transactionSession.withTransaction(async () => {
+      const userId = new ObjectId(session.user.id);
+      const result = await db.collection("user").updateOne(
+        { _id: userId, ...(complete ? { profileCompletedAt: null } : {}) },
+        { $set: updates }, { session: transactionSession },
+      );
+      if (result.matchedCount !== 1) throw new ProfileChangedError();
+      await createExchangeService(db, db.client).grantWelcome(userId, transactionSession);
+    }));
     return Response.json({ success: true });
   } catch (error) {
+    if (error instanceof ProfileChangedError) return apiError(409, "PROFILE_CHANGED", "Your profile changed. Refresh the page and try again.");
     if (error instanceof InputError) return apiError(400, "INVALID_INPUT", error.message);
     if (error instanceof MongoServerError && error.code === 11000) return apiError(409, "IDENTIFIER_IN_USE", conflictMessage);
     return apiError(503, "UNAVAILABLE", "We could not save your profile. Please try again.");
   }
 }
+
+class ProfileChangedError extends Error {}

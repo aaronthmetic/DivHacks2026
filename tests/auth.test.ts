@@ -1,3 +1,5 @@
+import { ensureExchangeIndexes } from "../lib/exchange-schema";
+import { ObjectId } from "mongodb";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
@@ -22,6 +24,7 @@ before(async () => {
   client = await new MongoClient(server.getUri()).connect();
   db = client.db("auth_test");
   await ensureAuthIndexes(db);
+  await ensureExchangeIndexes(db);
   auth = createAuth(db, client, env);
 });
 after(async () => { await client?.close(); await server?.stop(); });
@@ -64,6 +67,10 @@ test("registration stores a complete profile and hashed password; both identifie
   assert.equal(registered.user.email, "mixedcase@example.com");
   assert.equal(registered.user.name, "Zoë 王");
   assert.ok(isProfileComplete(registered.user));
+  assert.equal(registered.user.rating, 0);
+  assert.equal(registered.user.numberOfReviews, 0);
+  assert.deepEqual(registered.user.reviews, []);
+  assert.equal((await db.collection("creditAccount").findOne({ userId: new ObjectId(registered.user.id) }))?.availableCredits, 1000);
   assert.equal(registered.user.phoneNumberVerified, false);
   assert.match(registered.cookie, /session_token=/);
   const record = await db.collection("user").findOne({ email: "mixedcase@example.com" });
@@ -79,7 +86,7 @@ test("registration stores a complete profile and hashed password; both identifie
 });
 
 test("direct registration rejects omitted fields and forged server fields", async () => {
-  for (const overrides of [{ firstName: "" }, { lastName: "" }, { phoneNumber: undefined }, { emailVerified: true }, { phoneNumberVerified: true }, { profileCompletedAt: "2026-01-01" }]) {
+  for (const overrides of [{ firstName: "" }, { lastName: "" }, { phoneNumber: undefined }, { emailVerified: true }, { phoneNumberVerified: true }, { rating: 5 }, { numberOfReviews: 10 }, { reviews: [] }, { profileCompletedAt: "2026-01-01" }]) {
     const result = await request("/sign-up/email", account(overrides));
     assert.equal(result.status, 400, await result.clone().text());
   }
@@ -171,6 +178,7 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   assert.equal((await updateProfile(profileRequest(body, cookies, true), auth, db, origin, true)).status, 409);
   session = await auth.api.getSession({ headers: new Headers({ cookie: cookies }) });
   assert.ok(session && isProfileComplete(session.user));
+  assert.equal((await db.collection("creditAccount").findOne({ userId: new ObjectId(session.user.id) }))?.availableCredits, 1000);
   assert.equal((await request("/sign-in/phone-number", { phoneNumber: body.phoneNumber, password: "not a password" })).status, 401);
   const returning = await googleLogin(email, "Original", "GoogleName");
   assert.equal(returning.status, 302);

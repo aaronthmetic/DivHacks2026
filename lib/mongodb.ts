@@ -1,3 +1,4 @@
+import { ensureExchangeIndexes } from "./exchange-schema";
 import "server-only";
 import { MongoClient } from "mongodb";
 import { ensureAuthIndexes } from "./auth-indexes";
@@ -15,6 +16,7 @@ export function getMongo() {
         await client.connect();
         const db = client.db(process.env.MONGODB_DB);
         await ensureAuthIndexes(db);
+        await ensureExchangeIndexes(db);
         return { client, db };
       } catch (error) {
         await client.close();

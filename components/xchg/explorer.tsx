@@ -19,15 +19,17 @@ export function Explorer({
   services,
   areas,
   notifications,
-  selectedZip,
+  initialZip,
   mapsApiKey,
+  mapsMapId,
   query = "",
 }: {
   services: Service[];
   areas: ZipArea[];
   notifications: Notification[];
-  selectedZip: string | null;
+  initialZip: string | null;
   mapsApiKey?: string;
+  mapsMapId?: string;
   query?: string;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -73,9 +75,10 @@ export function Explorer({
         <div className="absolute inset-x-0 top-0 bottom-[45%] lg:relative lg:inset-auto lg:flex-none lg:basis-[60%]">
           <ServiceMap
             apiKey={mapsApiKey}
+            mapId={mapsMapId}
             areas={areas}
             services={services}
-            selectedZip={selectedZip}
+            initialZip={initialZip}
           />
         </div>
         <section

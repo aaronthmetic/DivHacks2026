@@ -7,10 +7,11 @@ export default function Home() {
       services={services}
       areas={zipAreas}
       notifications={notifications}
-      selectedZip="10027"
+      initialZip="10027"
       // Browsers always see a Maps JavaScript API key, so restrict it to your
       // domains in Google Cloud.
       mapsApiKey={process.env.GOOGLE_MAPS_API_KEY}
+      mapsMapId={process.env.GOOGLE_MAPS_MAP_ID}
     />
   );
 }

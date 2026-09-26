@@ -70,6 +70,14 @@ Group chats need a dedicated Photon line (Business plan). On Free or Pro, a grou
 
 Only text is passed along. For photos and other content, the other person gets a short note instead.
 
+## Map
+
+The map shows one card per zip code, with up to three cards fanned out when a zip has several services. Cards that would overlap merge into one stack ("2 areas"); click it to zoom in. Hovering a card or a zip's area highlights the area, and clicking selects it.
+
+- `GOOGLE_MAPS_API_KEY`: your Maps JavaScript API key.
+- `GOOGLE_MAPS_MAP_ID` (optional): sets the map style. To hide businesses and transit, create a map style in Google Cloud with points of interest and transit turned off, create a JavaScript Map ID under Map Management, attach the style to it, and put the ID here. Without it, the map uses Google's demo Map ID.
+- Zip outlines come from NYC Open Data. After adding zip codes to `lib/xchg/data.ts`, run `node scripts/zip-boundaries.mjs <zip> [zip...]` to regenerate `lib/xchg/zip-boundaries.json`. It also prints each zip's official center point.
+
 ## Project layout
 
 ```
@@ -78,7 +86,7 @@ app/api/dev/     dev-only API routes (Photon test endpoint)
 components/ui/   shadcn/ui components
 lib/             Photon client, relay pairing, cn() helper
 public/          static files served from /
-scripts/         standalone scripts (npm run relay)
+scripts/         standalone scripts (relay, zip boundaries)
 ```
 
 ## Environment variables

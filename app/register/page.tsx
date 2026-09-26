@@ -5,7 +5,7 @@ import { redirectIfSignedIn } from "@/lib/session";
 
 export default async function RegisterPage() {
   await redirectIfSignedIn();
-  return <AuthShell title="Create your account" description="Enter your details to get started. All fields are required.">
+  return <AuthShell title="Create an account">
     <AuthForm mode="register" googleEnabled={googleEnabled()} />
   </AuthShell>;
 }

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode, SVGProps } from "react";
 import { Bell, Menu, Search, X } from "lucide-react";
@@ -18,7 +19,7 @@ export function Header({
 }) {
   const menuOpen = openPanel === "menu";
   return (
-    <header className="relative z-30 flex h-[94px] shrink-0 items-center bg-xchg-navy pr-6 pl-7 lg:pr-8 lg:pl-10">
+    <header className="relative z-30 flex h-[94px] shrink-0 items-center bg-barter-navy pr-6 pl-7 lg:pr-8 lg:pl-10">
       <button
         type="button"
         onClick={() => onToggle("menu")}
@@ -33,12 +34,15 @@ export function Header({
           <Menu className="size-9" strokeWidth={2.5} />
         )}
       </button>
-      <Link
-        href="/"
-        className="font-logo text-[35px] leading-none font-bold tracking-wide"
-      >
-        <span className="text-white">X</span>
-        <span className="text-xchg-periwinkle">CHG</span>
+      <Link href="/" aria-label="barter home" className="shrink-0">
+        <Image
+          src="/barter-mark-white.png"
+          alt=""
+          width={417}
+          height={487}
+          loading="eager"
+          className="h-12 w-auto"
+        />
       </Link>
       <div className="relative mr-[clamp(1.5rem,11vw,13rem)] ml-[clamp(1.5rem,10vw,11rem)] hidden flex-1 items-center gap-7 lg:flex">
         <SearchInput className="h-[58px] flex-1" />
@@ -74,7 +78,7 @@ export function Header({
         >
           <Bell className="size-9" fill="currentColor" strokeWidth={1.5} />
           {unreadCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-xchg-dot ring-2 ring-xchg-navy" />
+            <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-barter-dot ring-2 ring-barter-navy" />
           )}
         </button>
         <Link href="/profile" aria-label="Profile" className="text-white">
@@ -95,8 +99,8 @@ export function SearchInput({
   return (
     <label
       className={cn(
-        "flex items-center gap-3 rounded-lg bg-white px-6 focus-within:ring-2 focus-within:ring-xchg-blue",
-        outlined && "border border-xchg-line px-[18px]",
+        "flex items-center gap-3 rounded-lg bg-white px-6 focus-within:ring-2 focus-within:ring-barter-blue",
+        outlined && "border border-barter-line px-[18px]",
         className,
       )}
     >
@@ -136,12 +140,12 @@ function ProfileIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 48 48" fill="none" aria-hidden {...props}>
       <defs>
-        <clipPath id="xchg-profile-clip">
+        <clipPath id="barter-profile-clip">
           <circle cx="24" cy="24" r="22" />
         </clipPath>
       </defs>
       <circle cx="24" cy="24" r="22.5" stroke="currentColor" strokeWidth={2} />
-      <g clipPath="url(#xchg-profile-clip)" fill="currentColor">
+      <g clipPath="url(#barter-profile-clip)" fill="currentColor">
         <circle cx="24" cy="19" r="8" />
         <path d="M8 46c0-9 7.2-16 16-16s16 7 16 16z" />
       </g>

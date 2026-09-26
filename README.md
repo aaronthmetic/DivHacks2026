@@ -76,7 +76,7 @@ The map shows one card per zip code, with up to three cards fanned out when a zi
 
 - `GOOGLE_MAPS_API_KEY`: your Maps JavaScript API key.
 - `GOOGLE_MAPS_MAP_ID` (optional): sets the map style. To hide businesses and transit, create a map style in Google Cloud with points of interest and transit turned off, create a JavaScript Map ID under Map Management, attach the style to it, and put the ID here. Without it, the map uses Google's demo Map ID.
-- Zip outlines come from NYC Open Data. After adding zip codes to `lib/xchg/data.ts`, run `node scripts/zip-boundaries.mjs <zip> [zip...]` to regenerate `lib/xchg/zip-boundaries.json`. It also prints each zip's official center point.
+- Zip outlines come from NYC Open Data. After adding zip codes to `lib/barter/data.ts`, run `node scripts/zip-boundaries.mjs <zip> [zip...]` to regenerate `lib/barter/zip-boundaries.json`. It also prints each zip's official center point.
 
 ## Project layout
 
@@ -114,8 +114,8 @@ All application instances must share the MongoDB database, auth secret, and publ
 
 ### Account behavior
 
-- `/register`: first name, last name, email, phone number, and a 12–128 character password are required. Passwords are hashed by Better Auth. Email is trimmed and lowercased; phone numbers use E.164 with an explicit country selector (US initially selected).
-- `/login`: email/password, phone/password, or Google OAuth. Email and phone are unique. Google accounts do not have passwords. Accounts are never automatically linked by matching email or phone.
+- `/register`: first name, last name, email, phone number, and a 12–128 character password are required. Passwords are hashed by Better Auth. Email is trimmed and lowercased; phone numbers use E.164 with an explicit country selector (no country is preselected; numbers typed with a leading `+` need none).
+- `/login`: email/password, phone/password (typed into the same field; the country selector appears for numbers without a leading `+`), or Google OAuth. Email and phone are unique. Google accounts do not have passwords. Accounts are never automatically linked by matching email or phone.
 - `/complete-profile`: first-time Google users confirm their imported names and enter a phone number. Both names and phone are required before protected application access. Returning Google logins preserve edited names.
 - `/`: authenticated service explorer; signed-out visitors are redirected to `/login`. Successful login and completed onboarding return here.
 - `/profile`: authenticated account page with name editing, read-only email/phone, and logout. New protected server pages should use `requireSession()` from `lib/session.ts`; incomplete accounts are redirected to onboarding. Session renewal is mounted once in the root layout, so new pages need nothing else.

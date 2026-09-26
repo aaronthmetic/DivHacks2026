@@ -1,4 +1,4 @@
-// Mock data for the XCHG UI until a real API exists. Components only depend
+// Mock data for the barter UI until a real API exists. Components only depend
 // on these types, so swapping the source later shouldn't touch them.
 
 export type Category =
@@ -217,5 +217,5 @@ export const notifications: Notification[] = [
   { id: "n5", text: "Dog Walking tomorrow at 9:00 AM", read: true },
   { id: "n6", text: "Your profile is 80% complete", read: true },
   { id: "n7", text: "3 new services near 10027", read: true },
-  { id: "n8", text: "Welcome to XCHG!", read: true },
+  { id: "n8", text: "Welcome to barter!", read: true },
 ];

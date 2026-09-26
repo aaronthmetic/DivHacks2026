@@ -1,6 +1,6 @@
 import { requireSession } from "@/lib/session";
-import { Explorer } from "@/components/xchg/explorer";
-import { notifications, services, zipAreas } from "@/lib/xchg/data";
+import { Explorer } from "@/components/barter/explorer";
+import { notifications, services, zipAreas } from "@/lib/barter/data";
 
 export default async function Home() {
   await requireSession();

@@ -1,6 +1,6 @@
-// Regenerates lib/xchg/zip-boundaries.json (zip outlines for the map) from
+// Regenerates lib/barter/zip-boundaries.json (zip outlines for the map) from
 // NYC Open Data's ZIP code tabulation areas, and prints each zip's official
-// center point for lib/xchg/data.ts.
+// center point for lib/barter/data.ts.
 // Usage: node scripts/zip-boundaries.mjs 10024 10025 10026
 import { writeFileSync } from "node:fs";
 
@@ -40,7 +40,7 @@ const collection = {
 };
 
 writeFileSync(
-  new URL("../lib/xchg/zip-boundaries.json", import.meta.url),
+  new URL("../lib/barter/zip-boundaries.json", import.meta.url),
   `${JSON.stringify(collection)}\n`,
 );
 

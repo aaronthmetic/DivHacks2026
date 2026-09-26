@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import type { Notification, Service, ZipArea } from "@/lib/xchg/data";
+import type { Notification, Service, ZipArea } from "@/lib/barter/data";
 import { Header, type Panel, SearchInput } from "./header";
 import { FiltersPanel, NotificationsPanel } from "./panels";
 import { ResultsPanel } from "./results";
@@ -93,7 +93,7 @@ export function Explorer({
         >
           <div
             aria-hidden
-            className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-xchg-line"
+            className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-barter-line"
           />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <ResultsPanel services={services} query={query} compact />

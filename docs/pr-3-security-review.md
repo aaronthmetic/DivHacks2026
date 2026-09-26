@@ -27,7 +27,7 @@ Deployment follow-up:
 - If OAuth accounts already exist, migrate or revoke existing plaintext tokens; enabling encryption only protects subsequent writes. Preserve the authentication secret.
 - If the vulnerable forms were previously used in a live deployment, investigate credential-bearing URLs in access logs/history and handle any confirmed exposure. This review did not establish that exposure occurred.
 
-Follow-up (PR #4 review): the home page now renders the XCHG explorer, whose map loads through `@vis.gl/react-google-maps` with the key passed from the server page. The `GoogleMap` component and `/api/api-key` route that comments 5, 9 and 12 refer to were removed as unused.
+Follow-up (PR #4 review): the home page now renders the barter explorer, whose map loads through `@vis.gl/react-google-maps` with the key passed from the server page. The `GoogleMap` component and `/api/api-key` route that comments 5, 9 and 12 refer to were removed as unused.
 
 Validation: 24 regression tests (including MongoDB-backed auth/OAuth flows), TypeScript, ESLint, and a Webpack production build. An isolated `npm ci --ignore-scripts` confirms lockfile consistency. The default Turbopack build could not complete in this environment because its CSS worker failed to bind a local port, including on an elevated retry. Live Google consent and Maps rendering were not browser-tested.
 

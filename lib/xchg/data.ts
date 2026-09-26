@@ -1,3 +1,8 @@
+import { ObjectId } from "mongodb";
+import { getMongo } from "@/lib/mongodb";
+
+const { db } = await getMongo();
+
 // Mock data for the XCHG UI until a real API exists. Components only depend
 // on these types, so swapping the source later shouldn't touch them.
 
@@ -46,6 +51,33 @@ export const zipAreas: ZipArea[] = [
   { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8248, lng: -73.95021 },
 ];
 
+const documents = await db
+  .collection("services")
+  .find({})
+  .toArray();
+
+export const services = documents.map((service) => ({
+  id: service._id.toString(),
+
+  title: service.title,
+
+  rating: service.rating ?? 0,
+  ratingCount: service.ratingCount ?? 0,
+
+  location: service.location ?? "",
+  tags: service.tags ?? [],
+
+  images: (service.images ?? []).map((imageId: ObjectId) =>
+    imageId.toString(),
+  ),
+
+  description: service.description,
+  price: service.price,
+
+  userId: service.userId?.toString(),
+  genreId: service.genreId?.toString(),
+}));
+/*
 export const services: Service[] = [
   {
     id: "guitar",
@@ -208,6 +240,7 @@ export const services: Service[] = [
     tags: ["Storefronts", "Murals", "Lettering", "Design", "Outdoor", "Custom"],
   },
 ];
+*/
 
 export const notifications: Notification[] = [
   { id: "n1", text: "Emily messaged you about Guitar Lessons", read: false },

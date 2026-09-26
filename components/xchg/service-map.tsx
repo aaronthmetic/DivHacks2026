@@ -19,7 +19,6 @@ import {
 import type { Category, Service, ZipArea } from "@/lib/xchg/data";
 import boundaries from "@/lib/xchg/zip-boundaries.json";
 import { cn } from "@/lib/utils";
-import { ServiceArt } from "./results";
 
 // Advanced Markers (custom HTML markers) need a Map ID. Google's demo ID works
 // for development; GOOGLE_MAPS_MAP_ID can point at a styled one (see README).

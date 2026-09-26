@@ -1,4 +1,5 @@
 import { ObjectId, type Db } from "mongodb";
+import type { Images } from "./image";
 
 export interface UserExchangeFields {
   bio?: string; zipCode?: string; countryCode?: string;
@@ -15,6 +16,7 @@ export interface Service {
   pricingType: "fixed" | "hourly";
   /** All credit amounts are integer hundredths: 100 = 1 credit. */
   creditRate: number; status: "active" | "paused" | "archived"; createdAt: Date; updatedAt: Date;
+  img: ObjectId[];
 }
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;

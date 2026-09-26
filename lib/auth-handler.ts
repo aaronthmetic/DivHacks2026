@@ -1,4 +1,4 @@
-import { authUnavailable, logAuthFailure } from "./auth-errors";
+import { authUnavailable, callbackRedirect, isOAuthCallback, logAuthFailure } from "./auth-errors";
 import type { Auth } from "./auth-config";
 import { apiError } from "./profile-service";
 import { conflictMessage } from "./auth-validation";
@@ -25,6 +25,10 @@ export async function handleAuthRequest(request: Request, auth: Auth) {
     if (response.status >= 500) {
       logAuthFailure("Auth endpoint returned a server error");
       return authUnavailable(request);
+    }
+    // e.g. a rate-limited callback: never leave the browser on a raw JSON error.
+    if (response.status >= 400 && isOAuthCallback(request)) {
+      return callbackRedirect(response.status === 429 ? "rate_limited" : "unavailable");
     }
     return response;
   } catch (error) {

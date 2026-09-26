@@ -1,6 +1,6 @@
 import { ensureExchangeIndexes } from "./exchange-schema";
 import "server-only";
-import { AuthConfigurationError } from "./auth-errors";
+import { AuthConfigurationError, logAuthFailure } from "./auth-errors";
 import { MongoClient } from "mongodb";
 import { ensureAuthIndexes } from "./auth-indexes";
 
@@ -17,7 +17,9 @@ export function getMongo() {
         await client.connect();
         const db = client.db(process.env.MONGODB_DB);
         await ensureAuthIndexes(db);
-        await ensureExchangeIndexes(db);
+        // `npm run db:indexes` also installs these. The exchange domain must not be able to
+        // take authentication down, so its index build runs in the background and only logs.
+        void ensureExchangeIndexes(db).catch((error) => logAuthFailure("Exchange index setup", error));
         return { client, db };
       } catch (error) {
         await client.close();

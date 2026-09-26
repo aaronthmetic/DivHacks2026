@@ -7,6 +7,8 @@ function requireValue(condition: unknown, message: string): asserts condition {
   if (!condition) throw new InputError(message);
 }
 function positiveInteger(value: number) { return Number.isSafeInteger(value) && value > 0; }
+function welcomeKey(userId: ObjectId) { return `welcome:${userId}`; }
+const bookingTargets = { accept: "accepted", decline: "declined", cancel: "cancelled", deliver: "awaiting_confirmation", confirm: "completed" } as const;
 export function calculateCredits(pricingType: Service["pricingType"], creditRate: number, durationMinutes?: number) {
   requireValue(pricingType === "fixed" || pricingType === "hourly", "Invalid pricing type.");
   requireValue(positiveInteger(creditRate), "Rate must be positive integer hundredths of a credit.");
@@ -38,15 +40,22 @@ export function createExchangeService(db: Db, client: MongoClient) {
     requireValue(user && isProfileComplete({ firstName: user.firstName, lastName: user.lastName, phoneNumber: user.phoneNumber, profileCompletedAt: user.profileCompletedAt }), "A complete user profile is required.");
   }
   async function grantWelcome(userId: ObjectId, session: ClientSession) {
-    await completeUser(userId, session);
-    // Serialize competing grants on the user document, including first account creation.
-    await db.collection("user").updateOne({ _id: userId }, { $inc: { creditGrantVersion: 1 } }, { session });
-    const key = `welcome:${userId}`;
+    // The ledger is append-only, so an existing key means the grant already committed.
+    const key = welcomeKey(userId);
     if (await c.transactions.findOne({ idempotencyKey: key }, { session })) return;
+    await completeUser(userId, session);
+    // Serialize competing first grants on the user document; a losing transaction retries
+    // and then sees the winner's ledger entry above.
+    await db.collection("user").updateOne({ _id: userId }, { $inc: { creditGrantVersion: 1 } }, { session });
     const now = new Date();
     const account = await c.accounts.findOneAndUpdate({ userId }, { $setOnInsert: { _id: new ObjectId(), userId, availableCredits: 0, heldCredits: 0, createdAt: now }, $set: { updatedAt: now } }, { upsert: true, returnDocument: "after", session });
     await c.accounts.updateOne({ _id: account!._id }, { $inc: { availableCredits: 1000 } }, { session });
     await c.transactions.insertOne({ _id: new ObjectId(), accountId: account!._id, type: "welcome", availableDelta: 1000, heldDelta: 0, idempotencyKey: key, createdAt: now }, { session });
+  }
+  // Providers created before welcome grants existed may have no account to receive earnings.
+  async function ensureAccount(userId: ObjectId, session: ClientSession) {
+    const now = new Date();
+    await c.accounts.updateOne({ userId }, { $setOnInsert: { _id: new ObjectId(), userId, availableCredits: 0, heldCredits: 0, createdAt: now, updatedAt: now } }, { upsert: true, session });
   }
   async function move(userId: ObjectId, booking: Booking, type: "reserve" | "release" | "payment" | "earning", availableDelta: number, heldDelta: number, session: ClientSession) {
     const account = await c.accounts.findOneAndUpdate({ userId, availableCredits: { $gte: Math.max(0, -availableDelta), $lte: Number.MAX_SAFE_INTEGER - Math.max(0, availableDelta) }, heldCredits: { $gte: Math.max(0, -heldDelta), $lte: Number.MAX_SAFE_INTEGER - Math.max(0, heldDelta) } }, { $inc: { availableCredits: availableDelta, heldCredits: heldDelta }, $set: { updatedAt: new Date() } }, { session, returnDocument: "after" });
@@ -54,7 +63,16 @@ export function createExchangeService(db: Db, client: MongoClient) {
     await c.transactions.insertOne({ _id: new ObjectId(), accountId: account._id, bookingId: booking._id, type, availableDelta, heldDelta, idempotencyKey: `${booking._id}:${type}`, createdAt: new Date() }, { session });
   }
   return {
-    grantWelcome: (userId: ObjectId, session?: ClientSession) => session ? grantWelcome(userId, session) : transaction((s) => grantWelcome(userId, s)),
+    async grantWelcome(userId: ObjectId, session?: ClientSession) {
+      if (session) {
+        // Exactly-once relies on the caller's transaction; a plain session would double-credit.
+        if (!session.inTransaction()) throw new Error("grantWelcome requires a session in an active transaction.");
+        return grantWelcome(userId, session);
+      }
+      // Already-granted users (every later sign-in) skip the transaction entirely.
+      if (await c.transactions.findOne({ idempotencyKey: welcomeKey(userId) }, { projection: { _id: 1 } })) return;
+      return transaction((s) => grantWelcome(userId, s));
+    },
     async createService(userId: ObjectId, input: Omit<Service, "_id" | "userId" | "createdAt" | "updatedAt">) {
       validateService(input);
       return transaction(async (session) => {
@@ -73,6 +91,7 @@ export function createExchangeService(db: Db, client: MongoClient) {
         requireValue(service, "Active service not found.");
         requireValue(!service.userId.equals(requesterId), "You cannot book your own service.");
         await completeUser(service.userId, session);
+        await ensureAccount(service.userId, session);
         requireValue(await c.genres.findOne({ _id: service.genreId, isActive: true }, { session }), "An active genre is required.");
         requireValue(options.scheduledAt === undefined || (options.scheduledAt instanceof Date && Number.isFinite(options.scheduledAt.getTime())), "Invalid scheduled date.");
         const totalCredits = calculateCredits(service.pricingType, service.creditRate, options.durationMinutes);
@@ -84,14 +103,14 @@ export function createExchangeService(db: Db, client: MongoClient) {
       });
     },
     async transitionBooking(actorId: ObjectId, bookingId: ObjectId, action: "accept" | "decline" | "cancel" | "deliver" | "confirm") {
+      // Own-key check: inherited names like "__proto__" must not pass as actions.
+      requireValue(Object.hasOwn(bookingTargets, action), "Invalid action.");
+      const target = bookingTargets[action];
       return transaction(async (session) => {
         const booking = await c.bookings.findOne({ _id: bookingId }, { session });
         requireValue(booking, "Booking not found.");
         const provider = actorId.equals(booking.providerId), requester = actorId.equals(booking.requesterId);
         requireValue(action === "cancel" ? provider || requester : action === "confirm" ? requester : provider, "This action is not allowed for this user.");
-        const targets = { accept: "accepted", decline: "declined", cancel: "cancelled", deliver: "awaiting_confirmation", confirm: "completed" } as const;
-        const target = targets[action];
-        requireValue(target, "Invalid action.");
         if (booking.status === target) return booking;
         requireValue(action === "cancel" ? ["requested", "accepted"].includes(booking.status) : action === "deliver" ? booking.status === "accepted" : action === "confirm" ? booking.status === "awaiting_confirmation" : booking.status === "requested", "Invalid booking transition.");
         const now = new Date();

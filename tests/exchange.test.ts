@@ -137,3 +137,30 @@ test("received review fields track concurrent reviews and reject duplicate chang
   assert.equal(await c.reviews.countDocuments({ subjectUserId: provider }), 2);
   assert.equal((await db.collection("user").findOne({ _id: requester }))?.numberOfReviews, undefined);
 });
+
+test("inherited property names are not booking actions", async () => {
+  const { domain, c, provider, requester, service } = await fixture();
+  const booking = await domain.requestBooking(requester, service._id);
+  for (const action of ["__proto__", "constructor", "toString"]) {
+    await assert.rejects(domain.transitionBooking(provider, booking._id, action as "accept"), /Invalid action/);
+  }
+  assert.equal((await c.bookings.findOne({ _id: booking._id }))?.status, "requested");
+});
+
+test("a provider without a credit account still gets paid", async () => {
+  const { domain, c, provider, requester, service } = await fixture();
+  await c.accounts.deleteOne({ userId: provider });
+  const booking = await domain.requestBooking(requester, service._id);
+  await domain.transitionBooking(provider, booking._id, "accept");
+  await domain.transitionBooking(provider, booking._id, "deliver");
+  await domain.transitionBooking(requester, booking._id, "confirm");
+  assert.equal((await c.accounts.findOne({ userId: provider }))?.availableCredits, 600);
+});
+
+test("grantWelcome refuses a caller session that is not in a transaction", async () => {
+  const { domain, requester } = await fixture();
+  const session = client.startSession();
+  try {
+    await assert.rejects(domain.grantWelcome(requester, session), /active transaction/);
+  } finally { await session.endSession(); }
+});

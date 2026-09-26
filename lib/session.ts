@@ -22,10 +22,10 @@ export async function requireSession(complete = true) {
 }
 
 export async function redirectIfSignedIn() {
-  // Login/registration pages remain usable before environment setup.
-  if (!process.env.MONGODB_URI || !process.env.BETTER_AUTH_SECRET) return;
-  // This optional redirect must not turn public auth pages into a 500 during an
-  // outage. Protected routes still use requireSession(), which fails closed.
+  // getSession() always reads request headers, so these pages stay dynamic even in builds
+  // made without auth env, and it skips the database entirely when there is no session cookie.
+  // This optional redirect must not turn public auth pages into a 500 during an outage or
+  // before setup. Protected routes still use requireSession(), which fails closed.
   const session = await getSession().catch((error) => { unstable_rethrow(error); logAuthFailure("Optional session read", error); return null; });
   if (session) redirect(isProfileComplete(session.user) ? "/" : "/complete-profile");
 }

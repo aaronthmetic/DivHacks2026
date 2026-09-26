@@ -151,7 +151,7 @@ async function googleLogin(email: string, givenName = "Google", familyName = "Pe
   const ctx = await auth.$context;
   const provider = ctx.socialProviders.find((provider) => provider.id === "google");
   assert.ok(provider);
-  provider.validateAuthorizationCode = async () => ({ accessToken: "test-access-token" });
+  provider.validateAuthorizationCode = async () => ({ accessToken: "test-access-token", idToken: "test-id-token" });
   provider.getUserInfo = async () => ({ user: { email, emailVerified: true, ...googleProfile({ given_name: givenName, family_name: familyName }) }, data: { sub: `google-${email}` } });
   const start = await request("/sign-in/social", { provider: "google" });
   assert.equal(start.status, 200, await start.clone().text());
@@ -170,6 +170,7 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   const oauthAccount = await db.collection("account").findOne({ userId: new ObjectId(session.user.id), providerId: "google" });
   assert.ok(oauthAccount?.accessToken);
   assert.notEqual(oauthAccount.accessToken, "test-access-token");
+  assert.equal(oauthAccount.idToken ?? null, null);
   assert.equal(session.user.firstName, "Google");
   assert.equal(session.user.lastName, "");
   assert.equal(isProfileComplete(session.user), false);
@@ -187,6 +188,9 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   assert.equal(new URL(returning.headers.get("location")!, origin).pathname, "/");
   const updated = await auth.api.getSession({ headers: new Headers({ cookie: cookie(returning) }) });
   assert.equal(updated?.user.name, "Chosen Name");
+  // Returning logins rewrite the tokens; the ID token must still not be stored.
+  const refreshed = await db.collection("account").findOne({ userId: new ObjectId(updated!.user.id), providerId: "google" });
+  assert.equal(refreshed?.idToken ?? null, null);
 });
 
 test("Google cannot link by email or claim another account's phone", async () => {
@@ -333,6 +337,33 @@ test("phone normalization trims pasted whitespace and distinguishes extensions",
   assert.equal(normalizePhone(" \t+1 202 555 0123\u00a0"), "+12025550123");
   assert.throws(() => normalizePhone("12345", "US"), /Enter a valid phone number\./);
   assert.throws(() => normalizePhone("+1 202 555 0123 ext. 12"), /without an extension/);
+});
+
+test("a failing welcome grant is logged and does not block sign-in", async () => {
+  const user = await register();
+  const userId = new ObjectId(user.user.id);
+  // Remove the grant and corrupt the account so the retried grant throws.
+  await db.collection("creditTransaction").deleteOne({ idempotencyKey: `welcome:${userId}` });
+  await db.collection("creditAccount").updateOne({ userId }, { $set: { availableCredits: "corrupt" } });
+  const result = await request("/sign-in/email", { email: user.data.email, password: user.data.password });
+  assert.equal(result.status, 200, await result.clone().text());
+  assert.match(cookie(result), /session_token=/);
+});
+
+test("an empty IP header list falls back to x-forwarded-for", async () => {
+  const blank = createAuth(db, client, { ...env, ipAddressHeaders: [] });
+  const body = { phoneNumber: "+12025550777", password: "wrong-password" };
+  // Distinct clients must keep distinct buckets; a shared bucket would 429 the 11th.
+  for (let i = 0; i < 11; i++) {
+    assert.equal((await request("/sign-in/phone-number", body, "", blank, `198.51.100.${100 + i}`)).status, 401);
+  }
+});
+
+test("OAuth callback client errors redirect to login instead of raw JSON", async () => {
+  const limited = { handler: async () => Response.json({ message: "Too many requests." }, { status: 429 }) } as unknown as Auth;
+  const result = await handleAuthRequest(new Request(`${origin}/api/auth/callback/google?state=x`), limited);
+  assert.equal(result.status, 302);
+  assert.equal(result.headers.get("location"), "/login?error=rate_limited");
 });
 
 test("callback server errors return a fixed login redirect without leaking details", async () => {

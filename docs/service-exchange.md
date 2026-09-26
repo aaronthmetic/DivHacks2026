@@ -36,9 +36,11 @@ Each requestBooking call creates a new booking; transport-level retries should n
 
 ## Setup and existing users
 
-MongoDB must support multi-document transactions (a replica set or sharded cluster, including Atlas). Startup installs indexes; `npm run db:indexes` also installs both authentication and exchange indexes. Duplicate existing records must be resolved before unique indexes can be installed. No production database migration is executed by the source changes alone.
+MongoDB must support multi-document transactions (a replica set or sharded cluster, including Atlas). Run `npm run db:indexes` to install both authentication and exchange indexes. Startup also builds the exchange indexes in the background; a failure there is logged and never blocks authentication. Duplicate existing records must be resolved before unique indexes can be installed. No production database migration is executed by the source changes alone.
 
-Email registration grants welcome credits after the authentication transaction commits. Google profile completion and its welcome grant commit together. Session creation and profile updates retry a missing welcome grant, including for existing complete users. A registration grant failure can leave a successfully created identity; subsequent sign-in retries the grant safely. Incomplete users receive no credits. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
+Every new session (registration or sign-in) grants missing welcome credits to complete users after the authentication transaction commits. A failed grant is logged and never blocks authentication; the next session or profile update retries it. Google profile completion and its welcome grant commit together. Incomplete users receive no credits. Users who already have a welcome ledger entry skip the grant transaction entirely. Providers without a credit account (for example, accounts created before welcome grants existed) get an empty one when their service is first booked, so settlement can always pay them.
+
+**Before exposing booking or review endpoints:** welcome credits currently go to accounts whose email and phone are unverified, so scripted sign-ups could farm credits and reviews. Add verification or another abuse control first. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
 Genres must be inserted by a trusted server/admin process before listings can be created; no categories are automatically seeded. Photos, messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
 

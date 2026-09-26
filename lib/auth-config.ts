@@ -5,7 +5,8 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { phoneNumber } from "better-auth/plugins";
 import type { Db, MongoClient } from "mongodb";
-import { conflictMessage, InputError, normalizeEmail, normalizePhone, objectBody, onlyFields, registration } from "./auth-validation";
+import { logAuthFailure } from "./auth-errors";
+import { conflictMessage, InputError, isProfileComplete, normalizeEmail, normalizePhone, objectBody, onlyFields, registration } from "./auth-validation";
 
 export type AuthEnvironment = {
   baseURL: string;
@@ -40,7 +41,8 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
     } : {},
     account: { accountLinking: { enabled: false }, encryptOAuthTokens: true },
     onAPIError: { errorURL: "/login" },
-    advanced: { ipAddress: { ipAddressHeaders: env.ipAddressHeaders ?? ["x-forwarded-for"], trustedProxies: env.trustedProxies } },
+    // An empty header list would leave every client unidentified and in one shared rate-limit bucket.
+    advanced: { ipAddress: { ipAddressHeaders: env.ipAddressHeaders?.length ? env.ipAddressHeaders : ["x-forwarded-for"], trustedProxies: env.trustedProxies } },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     user: {
       additionalFields: {
@@ -106,16 +108,26 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
       }),
     },
     databaseHooks: {
+      // Every new session, including the one sign-up creates, retries a missing welcome grant.
+      // Credits are secondary to signing in, so a failed grant is logged instead of failing auth.
       session: { create: { after: async (session) => {
-        const record = await db.collection("user").findOne({ _id: new ObjectId(session.userId) });
-        if (record?.profileCompletedAt) await createExchangeService(db, client).grantWelcome(new ObjectId(session.userId));
+        try {
+          const userId = new ObjectId(session.userId);
+          const record = await db.collection("user").findOne({ _id: userId });
+          if (record && isProfileComplete({ firstName: record.firstName, lastName: record.lastName, phoneNumber: record.phoneNumber, profileCompletedAt: record.profileCompletedAt })) {
+            await createExchangeService(db, client).grantWelcome(userId);
+          }
+        } catch (error) {
+          logAuthFailure("Welcome credit grant", error);
+        }
       } } },
+      // Nothing reads Google's ID token after sign-in, so don't keep the plaintext JWT.
+      account: {
+        create: { before: async (account) => ({ data: { ...account, idToken: null } }) },
+        update: { before: async (account) => ("idToken" in account ? { data: { ...account, idToken: null } } : undefined) },
+      },
       user: {
         create: {
-          after: async (user) => {
-            const record = await db.collection("user").findOne({ _id: new ObjectId(user.id) });
-            if (record?.profileCompletedAt) await createExchangeService(db, client).grantWelcome(new ObjectId(user.id));
-          },
           before: async (user, ctx) => {
             if (ctx?.path === "/sign-up/email") {
               const { password: _password, ...data } = registration(ctx.body);

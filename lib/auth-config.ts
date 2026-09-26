@@ -1,3 +1,5 @@
+import { ObjectId } from "mongodb";
+import { createExchangeService } from "./exchange-service";
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -42,6 +44,12 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24, cookieCache: { enabled: false } },
     user: {
       additionalFields: {
+        rating: { type: "number", required: false, input: false, defaultValue: 0 },
+        numberOfReviews: { type: "number", required: false, input: false, defaultValue: 0 },
+        reviews: { type: "string[]", required: false, input: false, defaultValue: [] },
+        bio: { type: "string", required: false, input: false },
+        zipCode: { type: "string", required: false, input: false },
+        countryCode: { type: "string", required: false, input: false },
         firstName: { type: "string", required: false },
         lastName: { type: "string", required: false },
         profileCompletedAt: { type: "date", required: false, input: false },
@@ -98,8 +106,16 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
       }),
     },
     databaseHooks: {
+      session: { create: { after: async (session) => {
+        const record = await db.collection("user").findOne({ _id: new ObjectId(session.userId) });
+        if (record?.profileCompletedAt) await createExchangeService(db, client).grantWelcome(new ObjectId(session.userId));
+      } } },
       user: {
         create: {
+          after: async (user) => {
+            const record = await db.collection("user").findOne({ _id: new ObjectId(user.id) });
+            if (record?.profileCompletedAt) await createExchangeService(db, client).grantWelcome(new ObjectId(user.id));
+          },
           before: async (user, ctx) => {
             if (ctx?.path === "/sign-up/email") {
               const { password: _password, ...data } = registration(ctx.body);

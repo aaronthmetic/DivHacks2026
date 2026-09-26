@@ -1,4 +1,5 @@
 import { AuthConfigurationError, logAuthFailure } from "../lib/auth-errors";
+import { ensureExchangeIndexes } from "../lib/exchange-schema";
 import { MongoClient } from "mongodb";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
 
@@ -8,7 +9,8 @@ async function main() {
   try {
     await client.connect();
     await ensureAuthIndexes(client.db(process.env.MONGODB_DB));
-    console.log("Authentication indexes are ready.");
+    await ensureExchangeIndexes(client.db(process.env.MONGODB_DB));
+    console.log("Authentication and exchange indexes are ready.");
   } finally { await client.close(); }
 }
 main().catch((error) => { logAuthFailure("Index setup: check connectivity, permissions, and duplicate identifiers", error); process.exitCode = 1; });

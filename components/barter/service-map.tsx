@@ -16,15 +16,15 @@ import {
   useApiLoadingStatus,
   useMap,
 } from "@vis.gl/react-google-maps";
-import type { Category, Service, ZipArea } from "@/lib/xchg/data";
-import boundaries from "@/lib/xchg/zip-boundaries.json";
+import type { Category, Service, ZipArea } from "@/lib/barter/data";
+import boundaries from "@/lib/barter/zip-boundaries.json";
 import { cn } from "@/lib/utils";
 import { ServiceArt } from "./results";
 
 // Advanced Markers (custom HTML markers) need a Map ID. Google's demo ID works
 // for development; GOOGLE_MAPS_MAP_ID can point at a styled one (see README).
 const DEMO_MAP_ID = "DEMO_MAP_ID";
-const HIGHLIGHT = "#2ca3ff"; // --color-xchg-blue
+const HIGHLIGHT = "#2ca3ff"; // --color-barter-blue
 const MAX_CARDS = 3;
 // On-screen size of a card stack, used to decide when stacks would overlap.
 const STACK = {
@@ -396,7 +396,7 @@ function Card({
     <div
       className={cn(
         "w-[80px] origin-bottom rounded-[16px] bg-white p-[5px] shadow-[0_2px_8px_rgba(0,0,0,0.25)] lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
-        selected && "ring-[3px] ring-xchg-blue",
+        selected && "ring-[3px] ring-barter-blue",
         className,
       )}
     >
@@ -407,7 +407,7 @@ function Card({
           iconClassName="size-7 lg:size-10"
         />
       ) : (
-        <div className="aspect-square w-full rounded-[12px] bg-xchg-read lg:rounded-[15px]" />
+        <div className="aspect-square w-full rounded-[12px] bg-barter-read lg:rounded-[15px]" />
       )}
       <p className="flex h-5 items-center justify-center text-xs text-black lg:h-6 lg:text-[13px]">
         {label}
@@ -418,7 +418,7 @@ function Card({
 
 function MapNotice({ children }: { children: ReactNode }) {
   return (
-    <div className="flex size-full items-center justify-center bg-[#e9ecef] p-6 text-center text-sm text-xchg-gray">
+    <div className="flex size-full items-center justify-center bg-[#e9ecef] p-6 text-center text-sm text-barter-gray">
       <p className="max-w-xs">{children}</p>
     </div>
   );

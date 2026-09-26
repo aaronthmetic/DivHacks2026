@@ -6,7 +6,7 @@ import { redirectIfSignedIn } from "@/lib/session";
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   await redirectIfSignedIn();
   const params = await searchParams;
-  return <AuthShell title="Welcome back" description="Log in with your email or phone number and password, or continue with Google.">
+  return <AuthShell title="Log in">
     <AuthForm mode="login" googleEnabled={googleEnabled()} oauthError={Boolean(params.error)} />
   </AuthShell>;
 }

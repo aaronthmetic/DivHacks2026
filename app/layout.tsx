@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Barlow_Condensed, Inter } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { getSessionCookie } from "better-auth/cookies";
 import { SessionRefresh } from "@/components/auth/session-refresh";
@@ -10,15 +10,14 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-// The XCHG logo face.
-const barlowCondensed = Barlow_Condensed({
-  variable: "--font-barlow-condensed",
+// The monospace face of the auth screens (`font-mono`), loaded as a variable font.
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
-  weight: "700",
 });
 
 export const metadata: Metadata = {
-  title: "XCHG",
+  title: "barter",
   description: "Find and exchange services near you.",
 };
 
@@ -29,7 +28,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${barlowCondensed.variable} h-full antialiased`}
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{signedIn && <SessionRefresh />}{children}</body>
     </html>

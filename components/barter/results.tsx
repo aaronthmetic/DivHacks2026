@@ -13,7 +13,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Category, Service } from "@/lib/xchg/data";
+import type { Category, Service } from "@/lib/barter/data";
 import { cn } from "@/lib/utils";
 
 // Stand-in artwork per category until services have real photos.
@@ -115,7 +115,7 @@ function ServiceCard({
           <Star
             aria-hidden
             className={cn(
-              "fill-xchg-star text-xchg-star",
+              "fill-barter-star text-barter-star",
               compact ? "size-3.5" : "size-[26px]",
             )}
           />
@@ -123,7 +123,7 @@ function ServiceCard({
       </div>
       <div
         className={cn(
-          "flex justify-between gap-2 text-xchg-gray",
+          "flex justify-between gap-2 text-barter-gray",
           compact ? "mt-1 text-[9px]" : "mt-2 text-[15px]",
         )}
       >
@@ -166,7 +166,7 @@ function TagList({ tags, compact }: { tags: string[]; compact: boolean }) {
   }, [tags]);
 
   const chip = cn(
-    "shrink-0 whitespace-nowrap bg-xchg-line text-black",
+    "shrink-0 whitespace-nowrap bg-barter-line text-black",
     compact ? "rounded px-1.5 py-1" : "rounded-lg px-3.5 py-2",
   );
   const hidden = tags.length - visible;

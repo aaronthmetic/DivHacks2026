@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import type { Notification, ZipArea } from "@/lib/xchg/data";
+import type { Notification, ZipArea } from "@/lib/barter/data";
 import { cn } from "@/lib/utils";
 
 export function NotificationsPanel({
@@ -9,20 +9,20 @@ export function NotificationsPanel({
   notifications: Notification[];
 }) {
   return (
-    <ul className="border-x border-b border-xchg-line">
+    <ul className="border-x border-b border-barter-line">
       {notifications.map((notification) => (
         <li
           key={notification.id}
           className={cn(
-            "flex h-[68px] items-center justify-between gap-4 border-t border-xchg-line px-6 text-[15px] lg:px-9",
+            "flex h-[68px] items-center justify-between gap-4 border-t border-barter-line px-6 text-[15px] lg:px-9",
             notification.read
-              ? "bg-xchg-read text-xchg-gray"
+              ? "bg-barter-read text-barter-gray"
               : "bg-white text-black",
           )}
         >
           <span className="truncate">{notification.text}</span>
           {!notification.read && (
-            <span className="size-[13px] shrink-0 rounded-full bg-xchg-dot">
+            <span className="size-[13px] shrink-0 rounded-full bg-barter-dot">
               <span className="sr-only">Unread</span>
             </span>
           )}
@@ -43,7 +43,7 @@ export function FiltersPanel({
   zips: ZipArea[];
 }) {
   return (
-    <div className="border-x border-b border-xchg-line">
+    <div className="border-x border-b border-barter-line">
       <FilterSection title="Genre">
         {genres.map((genre) => (
           <Option key={genre} type="checkbox" name="genre" label={genre} />
@@ -82,7 +82,7 @@ function FilterSection({
   children: ReactNode;
 }) {
   return (
-    <details className="group border-t border-xchg-line">
+    <details className="group border-t border-barter-line">
       <summary className="flex h-[67px] cursor-pointer list-none items-center justify-between px-6 text-[15px] text-black [&::-webkit-details-marker]:hidden">
         {title}
         <ChevronDown
@@ -113,7 +113,7 @@ function Option({
         type={type}
         name={name}
         defaultChecked={defaultChecked}
-        className="size-4 accent-xchg-navy"
+        className="size-4 accent-barter-navy"
       />
       {label}
     </label>

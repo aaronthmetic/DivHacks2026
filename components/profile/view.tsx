@@ -24,7 +24,7 @@ function ListingImage({ src }: { src?: string }) {
   return src && !failed ?
     // eslint-disable-next-line @next/next/no-img-element
     <img src={src} alt="" onError={() => setFailed(true)} className="h-36 w-full rounded-lg object-cover" /> :
-    <div className="flex h-36 items-center justify-center rounded-lg bg-xchg-periwinkle/20"><ImageIcon aria-label="No listing image" className="size-10 text-xchg-navy" /></div>;
+    <div className="flex h-36 items-center justify-center rounded-lg bg-barter-periwinkle/20"><ImageIcon aria-label="No listing image" className="size-10 text-barter-navy" /></div>;
 }
 function containDialogFocus(event: KeyboardEvent<HTMLDialogElement>) {
   if (event.key !== "Tab") return;
@@ -40,7 +40,7 @@ function Carousel({ title, cards, listings = false }: { title: string; cards: Pr
   const card = cards[Math.min(index, Math.max(0, cards.length - 1))];
   const headingId = `${title.toLowerCase()}-details`;
   return <section className="min-w-0 rounded-2xl border bg-white p-6 shadow-sm" aria-label={title}>
-    <h2 className="mb-4 text-xl font-semibold text-xchg-navy">{title}</h2>
+    <h2 className="mb-4 text-xl font-semibold text-barter-navy">{title}</h2>
     {card ? <>
       <button onClick={() => dialog.current?.showModal()} className="w-full space-y-3 rounded-xl border p-4 text-left transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring" aria-label={`View ${card.title} details`}>
         <ListingImage key={card.id} src={card.image} />
@@ -64,10 +64,10 @@ function Carousel({ title, cards, listings = false }: { title: string; cards: Pr
 export function ProfileView({ profile, basePath }: { profile: ProfileData; basePath: string }) {
   return <main className="min-h-screen bg-muted/30 px-4 py-8 sm:px-8">
     <div className="mx-auto max-w-5xl">
-      <Link href="/" className="inline-flex items-center gap-2 text-sm text-xchg-navy"><ArrowLeft className="size-4" />Back to XCHG</Link>
-      <header className="flex flex-col items-center gap-4 py-10 text-center"><Avatar src={profile.image} name={profile.name} large /><h1 className="text-3xl font-bold text-xchg-navy">{profile.name}</h1><Stars rating={profile.rating} count={profile.reviewCount} />{profile.isOwner && <Link href="/profile/edit" className="rounded-lg bg-xchg-navy px-6 py-3 font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-4">Edit profile</Link>}</header>
+      <Link href="/" className="inline-flex items-center gap-2 text-sm text-barter-navy"><ArrowLeft className="size-4" />Back to barter</Link>
+      <header className="flex flex-col items-center gap-4 py-10 text-center"><Avatar src={profile.image} name={profile.name} large /><h1 className="text-3xl font-bold text-barter-navy">{profile.name}</h1><Stars rating={profile.rating} count={profile.reviewCount} />{profile.isOwner && <Link href="/profile/edit" className="rounded-lg bg-barter-navy px-6 py-3 font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-4">Edit profile</Link>}</header>
       <div className={`grid items-start gap-6 ${profile.isOwner ? "md:grid-cols-2" : ""}`}><Carousel title="Listings" cards={profile.listings} listings />{profile.isOwner && <Carousel title="Bookings" cards={profile.bookings} />}</div>
-      <section className="mt-8 rounded-2xl border bg-white p-6" aria-labelledby="reviews-heading"><h2 id="reviews-heading" className="text-xl font-semibold text-xchg-navy">Reviews</h2>
+      <section className="mt-8 rounded-2xl border bg-white p-6" aria-labelledby="reviews-heading"><h2 id="reviews-heading" className="text-xl font-semibold text-barter-navy">Reviews</h2>
         {profile.reviews.length ? <ul className="divide-y">{profile.reviews.map(review => <li key={review.id} className="space-y-3 py-6"><div className="flex items-center gap-3"><Avatar src={review.authorImage} name={review.authorName} /><Link href={`/profile/${review.authorId}`} className="font-medium underline">{review.authorName}</Link><time dateTime={review.date} className="ml-auto text-sm text-muted-foreground">{review.date}</time></div><Stars rating={review.rating} /><p className="whitespace-pre-wrap break-words">{review.comment}</p></li>)}</ul> : <p className="py-6 text-muted-foreground">No reviews yet.</p>}
         {profile.reviewPages > 1 && <nav aria-label="Review pages" className="flex items-center justify-between gap-4 border-t pt-4">{profile.reviewsPage > 1 ? <Link className="underline" href={`${basePath}?reviewsPage=${profile.reviewsPage - 1}#reviews-heading`}>Previous</Link> : <span className="text-muted-foreground">Previous</span>}<span>Page {profile.reviewsPage} of {profile.reviewPages}</span>{profile.reviewsPage < profile.reviewPages ? <Link className="underline" href={`${basePath}?reviewsPage=${profile.reviewsPage + 1}#reviews-heading`}>Next</Link> : <span className="text-muted-foreground">Next</span>}</nav>}
       </section>

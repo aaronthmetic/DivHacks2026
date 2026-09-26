@@ -6,6 +6,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { phoneNumber } from "better-auth/plugins";
 import type { Db, MongoClient } from "mongodb";
 import { conflictMessage, InputError, normalizeEmail, normalizePhone, registration } from "./auth-validation";
+import type { WithImages } from "./image";
 
 export type AuthEnvironment = {
   baseURL: string;

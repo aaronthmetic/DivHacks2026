@@ -16,7 +16,8 @@ export interface Service {
   pricingType: "fixed" | "hourly";
   /** All credit amounts are integer hundredths: 100 = 1 credit. */
   creditRate: number; status: "active" | "paused" | "archived"; createdAt: Date; updatedAt: Date;
-  img: ObjectId[];
+  /** GridFS image IDs (see lib/gridfs.ts); services created before images have none. */
+  images?: Images;
 }
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;

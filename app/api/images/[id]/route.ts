@@ -1,4 +1,4 @@
-    import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 
 import { getMongo } from "@/lib/mongodb";

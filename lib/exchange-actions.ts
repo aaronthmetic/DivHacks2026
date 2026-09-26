@@ -9,6 +9,10 @@ import {
   type Review,
 } from "./exchange-schema";
 
+// Low-level document helpers. They skip the validation, transactions and credit holds in
+// exchange-service.ts, so user-facing flows (bookings, settlement, reviews) should go
+// through createExchangeService instead.
+
 export async function addGenre(
   db: Db,
   data: {
@@ -44,8 +48,8 @@ export interface AddServiceInput {
   countryCode: string;
 
   deliveryMode:
-    | "online"
-    | "in-person"
+    | "remote"
+    | "in_person"
     | "either";
 
   pricingType:
@@ -65,6 +69,7 @@ export async function addService(
   const now = new Date();
 
   const service: Service = {
+    _id: new ObjectId(),
     userId: new ObjectId(input.userId),
     genreId: new ObjectId(input.genreId),
 
@@ -78,6 +83,7 @@ export async function addService(
     pricingType: input.pricingType,
 
     creditRate: input.creditRate,
+    status: "active",
 
     // Always create the images field
     images: input.images ?? [],
@@ -86,16 +92,10 @@ export async function addService(
     updatedAt: now,
   };
 
-  const collection =
-    db.collection<Service>("services");
+  // Same collection the domain service and bookings read ("service", not "services").
+  await exchangeCollections(db).services.insertOne(service);
 
-  const result =
-    await collection.insertOne(service);
-
-  return {
-    _id: result.insertedId,
-    ...service,
-  };
+  return service;
 }
 
 export async function addBooking(
@@ -355,17 +355,18 @@ export async function appendReviewToUser(
   reviewId: ObjectId,
   newRating: number
 ) {
-  const users = db.collection("user");
+  const users = db.collection<{
+    rating?: number;
+    numberOfReviews?: number;
+    reviews?: string[];
+  }>("user");
 
   const _id =
     typeof userId === "string"
       ? new ObjectId(userId)
       : userId;
 
-  const user = await users.findOne<{
-    rating?: number;
-    numberOfReviews?: number;
-  }>({ _id });
+  const user = await users.findOne({ _id });
 
   if (!user) {
     throw new Error("User not found");

@@ -81,9 +81,12 @@ export function Explorer({
             initialZip={initialZip}
           />
         </div>
+        {/* Scroll areas are `relative` so absolutely positioned children (the
+            cards' sr-only labels) stay inside them; otherwise they're placed
+            against <main> and stretch the whole page. */}
         <section
           aria-label="Results"
-          className="hidden min-w-0 flex-1 overflow-y-auto lg:block"
+          className="relative hidden min-w-0 flex-1 overflow-y-auto lg:block"
         >
           <ResultsPanel services={services} query={query} />
         </section>
@@ -95,7 +98,7 @@ export function Explorer({
             aria-hidden
             className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-barter-line"
           />
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative min-h-0 flex-1 overflow-y-auto">
             <ResultsPanel services={services} query={query} compact />
           </div>
         </section>

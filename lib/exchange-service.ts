@@ -1,5 +1,6 @@
 // Server-side domain operations. Callers must derive actor IDs from authenticated sessions.
 import { ObjectId, type ClientSession, type Db, type MongoClient } from "mongodb";
+import { snapshotService, validateScheduledAt } from "./booking-snapshot";
 import { InputError, isProfileComplete } from "./auth-validation";
 import { exchangeCollections, type Booking, type Service } from "./exchange-schema";
 
@@ -25,6 +26,7 @@ export function validateService(input: Omit<Service, "_id" | "userId" | "created
   requireValue(["active", "paused", "archived"].includes(input.status), "Invalid service status.");
   requireValue(input.genreId instanceof ObjectId, "Invalid genre ID.");
   calculateCredits(input.pricingType, input.creditRate, 60);
+  requireValue(input.images === undefined || (Array.isArray(input.images) && input.images.every(id => id instanceof ObjectId)), "Images must be an array of GridFS ObjectIds.");
   if (input.deliveryMode !== "remote" || input.zipCode !== undefined || input.countryCode !== undefined) {
     requireValue(typeof input.zipCode === "string" && input.zipCode.trim().length > 0 && input.zipCode.length <= 20, "A postal code is required.");
     requireValue(typeof input.countryCode === "string" && /^[A-Z]{2}$/.test(input.countryCode), "Use a two-letter uppercase country code.");
@@ -79,7 +81,7 @@ export function createExchangeService(db: Db, client: MongoClient) {
         await completeUser(userId, session);
         requireValue(await c.genres.findOne({ _id: input.genreId, isActive: true }, { session }), "An active genre is required.");
         const now = new Date();
-        const service: Service = { _id: new ObjectId(), userId, genreId: input.genreId, title: input.title.trim(), description: input.description.trim(), deliveryMode: input.deliveryMode, pricingType: input.pricingType, creditRate: input.creditRate, status: input.status, ...(input.zipCode !== undefined ? { zipCode: input.zipCode.trim(), countryCode: input.countryCode } : {}), createdAt: now, updatedAt: now };
+        const service: Service = { _id: new ObjectId(), userId, genreId: input.genreId, title: input.title.trim(), description: input.description.trim(), deliveryMode: input.deliveryMode, pricingType: input.pricingType, creditRate: input.creditRate, status: input.status, images: [...(input.images ?? [])], ...(input.zipCode !== undefined ? { zipCode: input.zipCode.trim(), countryCode: input.countryCode } : {}), createdAt: now, updatedAt: now };
         await c.services.insertOne(service, { session });
         return service;
       });
@@ -93,10 +95,10 @@ export function createExchangeService(db: Db, client: MongoClient) {
         await completeUser(service.userId, session);
         await ensureAccount(service.userId, session);
         requireValue(await c.genres.findOne({ _id: service.genreId, isActive: true }, { session }), "An active genre is required.");
-        requireValue(options.scheduledAt === undefined || (options.scheduledAt instanceof Date && Number.isFinite(options.scheduledAt.getTime())), "Invalid scheduled date.");
+        validateScheduledAt(options.scheduledAt);
         const totalCredits = calculateCredits(service.pricingType, service.creditRate, options.durationMinutes);
         const now = new Date();
-        const booking: Booking = { _id: new ObjectId(), serviceId, providerId: service.userId, requesterId, serviceSnapshot: { title: service.title, description: service.description, pricingType: service.pricingType, creditRate: service.creditRate }, ...(service.pricingType === "hourly" ? { durationMinutes: options.durationMinutes } : {}), ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}), totalCredits, status: "requested", createdAt: now, updatedAt: now };
+        const booking: Booking = { _id: new ObjectId(), serviceId, providerId: service.userId, requesterId, serviceSnapshot: snapshotService(service), ...(service.pricingType === "hourly" ? { durationMinutes: options.durationMinutes } : {}), ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}), totalCredits, status: "requested", createdAt: now, updatedAt: now };
         await move(requesterId, booking, "reserve", -totalCredits, totalCredits, session);
         await c.bookings.insertOne(booking, { session });
         return booking;

@@ -1,4 +1,5 @@
 import { ObjectId } from "mongodb";
+import { DEFAULT_AVATAR } from "./profile-display";
 import { createExchangeService } from "./exchange-service";
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
@@ -67,17 +68,23 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
         "/sign-in/email": { window: 60, max: 10 },
         "/sign-in/phone-number": { window: 60, max: 10 },
         "/sign-up/email": { window: 60, max: 5 },
+        "/change-password": { window: 60, max: 5 },
         "/sign-in/social": { window: 60, max: 10 },
       },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        const allowed = ["/sign-up/email", "/sign-in/email", "/sign-in/phone-number", "/sign-in/social", "/get-session", "/sign-out", "/callback/google", "/error"];
+        const allowed = ["/sign-up/email", "/sign-in/email", "/sign-in/phone-number", "/sign-in/social", "/get-session", "/sign-out", "/callback/google", "/error", "/change-password"];
         const googleCallback = ctx.path === "/callback/:id" && ctx.params?.id === "google";
         if (!allowed.includes(ctx.path) && !googleCallback) {
           throw new APIError("FORBIDDEN", { message: "This account operation is not enabled." });
         }
         try {
+          if (ctx.path === "/change-password") {
+            ctx.body = objectBody(ctx.body);
+            onlyFields(ctx.body, ["currentPassword", "newPassword", "revokeOtherSessions"]);
+            return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
+          }
           if (["/sign-up/email", "/sign-in/email", "/sign-in/phone-number", "/sign-in/social"].includes(ctx.path)) {
             ctx.body = objectBody(ctx.body);
           }
@@ -95,11 +102,12 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
           }
           if (ctx.path === "/sign-in/social") {
             // Only the OAuth authorization-code flow is exposed, with fixed local redirects.
-            onlyFields(ctx.body, ["provider"]);
+            onlyFields(ctx.body, ["provider", "reauthenticate"]);
+            if ("reauthenticate" in ctx.body && ctx.body.reauthenticate !== true) throw new InputError("Invalid sign-in request.");
             if (ctx.body.provider !== "google") {
               throw new InputError("Use the Google sign-in button to continue.");
             }
-            return { context: { ...ctx, body: { provider: "google", callbackURL: "/", newUserCallbackURL: "/complete-profile", errorCallbackURL: "/login" } } };
+            return { context: { ...ctx, body: { provider: "google", ...(ctx.body.reauthenticate ? { additionalParams: { prompt: "select_account" } } : {}), callbackURL: ctx.body.reauthenticate ? "/profile/edit" : "/", newUserCallbackURL: "/complete-profile", errorCallbackURL: "/login" } } };
           }
         } catch (error) {
           if (error instanceof InputError) throw new APIError("BAD_REQUEST", { message: error.message });
@@ -129,6 +137,7 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
       user: {
         create: {
           before: async (user, ctx) => {
+            user.image = user.image || DEFAULT_AVATAR;
             if (ctx?.path === "/sign-up/email") {
               const { password: _password, ...data } = registration(ctx.body);
               void _password;

@@ -129,13 +129,13 @@ test("sessions expire after seven days and logout revokes them", async () => {
   assert.equal(await auth.api.getSession({ headers: new Headers({ cookie: expired.cookie }) }), null);
 });
 
-test("profile edits are authenticated, same-origin, name-only, and scoped to the current user", async () => {
+test("profile edits are authenticated, same-origin, allowlisted, and scoped to the current user", async () => {
   const user = await register();
   const other = await register();
   const body = { firstName: "Updated", lastName: "Name" };
   assert.equal((await updateProfile(profileRequest(body), auth, db, origin, false)).status, 401);
   assert.equal((await updateProfile(profileRequest(body, user.cookie, false, "https://evil.example"), auth, db, origin, false)).status, 403);
-  for (const extra of [{ phoneNumber: "+12025550000" }, { email: "changed@example.com" }, { profileCompletedAt: new Date() }, { userId: other.user.id }, { phoneNumberVerified: true }]) {
+  for (const extra of [{ profileCompletedAt: new Date() }, { userId: other.user.id }, { phoneNumberVerified: true }]) {
     assert.equal((await updateProfile(profileRequest({ ...body, ...extra }, user.cookie), auth, db, origin, false)).status, 400);
   }
   assert.equal((await updateProfile(profileRequest(body, user.cookie), auth, db, origin, false)).status, 200);
@@ -385,4 +385,67 @@ test("trusted proxy hops preserve separate client rate-limit buckets", async () 
   assert.equal((await request("/sign-in/phone-number", body, "", proxied, "198.51.100.202, 10.0.0.10")).status, 401);
   // A spoofed left-most entry must not replace the right-most untrusted client.
   assert.equal((await request("/sign-in/phone-number", body, "", proxied, "203.0.113.5, 198.51.100.201, 10.0.0.10")).status, 429);
+});
+
+test("contact edits require the password, normalize identifiers, and refresh session data", async () => {
+  const user = await register();
+  assert.equal(user.user.image, "/default-avatar.svg");
+  const edit = (body: unknown) => updateProfile(profileRequest(body, user.cookie), auth, db, origin, false);
+  assert.equal((await edit({ firstName: "Partial" })).status, 200);
+  let session = await auth.api.getSession({ headers: new Headers({ cookie: user.cookie }) });
+  assert.equal(session?.user.name, "Partial 王");
+  const changes = { email: " CONTACT-EDIT@EXAMPLE.COM ", phoneNumber: "+1 202 555 0801" };
+  assert.equal((await edit(changes)).status, 403);
+  assert.equal((await edit({ ...changes, currentPassword: "wrong" })).status, 403);
+  await db.collection("user").updateOne({ _id: new ObjectId(user.user.id) }, { $set: { emailVerified: true, phoneNumberVerified: true } });
+  assert.equal((await edit({ ...changes, currentPassword: user.data.password })).status, 200);
+  session = await auth.api.getSession({ headers: new Headers({ cookie: user.cookie }) });
+  assert.equal(session?.user.email, "contact-edit@example.com");
+  assert.equal(session?.user.phoneNumber, "+12025550801");
+  assert.equal(session?.user.emailVerified, false);
+  assert.equal(session?.user.phoneNumberVerified, false);
+  assert.equal((await request("/sign-in/email", { email: user.data.email, password: user.data.password })).status, 401);
+  assert.equal((await request("/sign-in/phone-number", { phoneNumber: "+12025550801", password: user.data.password })).status, 200);
+  const other = await register();
+  for (const changes of [{ email: other.data.email }, { phoneNumber: other.data.phoneNumber }]) {
+    assert.equal((await edit({ ...changes, currentPassword: user.data.password })).status, 409);
+  }
+  assert.equal((await edit({ email: "bad", currentPassword: user.data.password })).status, 400);
+  assert.equal((await edit({ image: "/forged.png" })).status, 400);
+});
+
+test("password changes enforce current password and revoke other sessions even if client opts out", async () => {
+  const user = await register();
+  const second = await request("/sign-in/email", { email: user.data.email, password: user.data.password });
+  const otherCookie = cookie(second);
+  assert.equal((await request("/change-password", { currentPassword: "wrong", newPassword: "replacement password!" }, user.cookie)).status, 400);
+  assert.equal((await request("/change-password", { currentPassword: user.data.password, newPassword: "short" }, user.cookie)).status, 400);
+  const response = await request("/change-password", { currentPassword: user.data.password, newPassword: "replacement password!", revokeOtherSessions: false }, user.cookie);
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.ok(await auth.api.getSession({ headers: new Headers({ cookie: cookie(response) }) }));
+  assert.equal(await auth.api.getSession({ headers: new Headers({ cookie: otherCookie }) }), null);
+  assert.equal((await request("/sign-in/email", { email: user.data.email, password: user.data.password })).status, 401);
+  assert.equal((await request("/sign-in/email", { email: user.data.email, password: "replacement password!" })).status, 200);
+});
+
+test("Google contact edits require a recently created session; reauth redirects stay fixed", async () => {
+  const login = await googleLogin("google-edit@example.com");
+  const cookies = cookie(login);
+  const complete = { firstName: "Google", lastName: "Editor", phoneNumber: "+12025550802" };
+  assert.equal((await updateProfile(profileRequest(complete, cookies, true), auth, db, origin, true)).status, 200);
+  const edit = () => updateProfile(profileRequest({ email: "google-edited@example.com" }, cookies), auth, db, origin, false);
+  assert.equal((await edit()).status, 200);
+  const session = await auth.api.getSession({ headers: new Headers({ cookie: cookies }) });
+  await db.collection("session").updateMany({ userId: new ObjectId(session!.user.id) }, { $set: { createdAt: new Date(Date.now() - 301_000) } });
+  assert.equal((await edit()).status, 403);
+  assert.equal((await request("/change-password", { currentPassword: "none", newPassword: "replacement password!" }, cookies)).status, 400);
+  const start = await request("/sign-in/social", { provider: "google", reauthenticate: true }, cookies);
+  assert.equal(start.status, 200);
+  const url = new URL((await start.json()).url);
+  assert.equal(url.searchParams.get("prompt"), "select_account");
+  // Use the same provider account identity, even after the local email was edited.
+  const result = await request(`/callback/google?state=${encodeURIComponent(url.searchParams.get("state")!)}&code=test-code`, undefined, cookie(start));
+  assert.equal(new URL(result.headers.get("location")!, origin).pathname, "/profile/edit");
+  const freshCookies = cookie(result);
+  assert.equal((await updateProfile(profileRequest({ phoneNumber: "+12025550803" }, freshCookies), auth, db, origin, false)).status, 200);
 });

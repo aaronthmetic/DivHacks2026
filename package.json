@@ -10,7 +10,8 @@
     "relay": "tsx --env-file=.env.local scripts/relay.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "db:indexes": "node --env-file=.env.local --import tsx scripts/auth-indexes.ts"
+    "db:indexes": "node --env-file=.env.local --import tsx scripts/auth-indexes.ts",
+    "db:seed-profile": "node --env-file=.env.local --import tsx scripts/seed-profile.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

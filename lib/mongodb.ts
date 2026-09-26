@@ -1,29 +1,28 @@
-import "server-only";
 import { MongoClient } from "mongodb";
-import { ensureAuthIndexes } from "./auth-indexes";
 
-const globalMongo = globalThis as typeof globalThis & {
-  authMongo?: Promise<{ client: MongoClient; db: ReturnType<MongoClient["db"]> }>;
-};
+const uri = process.env.MONGODB_URI;
 
-export function getMongo() {
-  if (!globalMongo.authMongo) {
-    globalMongo.authMongo = (async () => {
-      if (!process.env.MONGODB_URI || !process.env.MONGODB_DB) throw new Error("MongoDB is not configured.");
-      const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
-      try {
-        await client.connect();
-        const db = client.db(process.env.MONGODB_DB);
-        await ensureAuthIndexes(db);
-        return { client, db };
-      } catch (error) {
-        await client.close();
-        throw error;
-      }
-    })().catch((error) => {
-      globalMongo.authMongo = undefined;
-      throw error;
-    });
-  }
-  return globalMongo.authMongo;
+if (!uri) {
+  throw new Error("MONGODB_URI is not defined");
 }
+
+const client = new MongoClient(uri);
+
+let clientPromise: Promise<MongoClient>;
+
+declare global {
+  var _mongoClientPromise: Promise<MongoClient> | undefined;
+}
+
+if (process.env.NODE_ENV === "development") {
+  // Prevent creating new connections on every Next.js hot reload
+  if (!global._mongoClientPromise) {
+    global._mongoClientPromise = client.connect();
+  }
+
+  clientPromise = global._mongoClientPromise;
+} else {
+  clientPromise = client.connect();
+}
+
+export default clientPromise;

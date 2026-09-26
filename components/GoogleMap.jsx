@@ -227,47 +227,41 @@ export default function GoogleMap() {
 }
 
   useEffect(() => {
+    async function getApiKey(service) {
+  const response = await fetch(`/api/api-key/${service}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to retrieve API key for ${service}`);
+  }
+
+  const data = await response.json();
+
+  return data.apiKey;
+}
     async function loadMap() {
-      try {
-        const response = await fetch("/api/maps-config");
+  try {
+    const apiKey = await getApiKey("googleMaps");
 
-        if (!response.ok) {
-          throw new Error("Failed to load Maps configuration");
-        }
-
-        const { apiKey } = await response.json();
-
-        // Google Maps already loaded
-        if (window.google?.maps) {
-          initializeMap();
-          return;
-        }
-
-        const existingScript = document.querySelector(
-          'script[data-google-maps="true"]'
-        );
-
-        if (existingScript) {
-          existingScript.addEventListener("load", initializeMap);
-          return;
-        }
-
-        const script = document.createElement("script");
-
-        script.src =
-          `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-
-        script.async = true;
-        script.defer = true;
-        script.dataset.googleMaps = "true";
-
-        script.addEventListener("load", initializeMap);
-
-        document.head.appendChild(script);
-      } catch (error) {
-        console.error("Google Maps failed to load:", error);
-      }
+    if (window.google?.maps) {
+      initializeMap();
+      return;
     }
+
+    const script = document.createElement("script");
+
+    script.src =
+      `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+
+    script.async = true;
+    script.defer = true;
+
+    script.addEventListener("load", initializeMap);
+
+    document.head.appendChild(script);
+  } catch (error) {
+    console.error("Google Maps failed to load:", error);
+  }
+}
 
     function initializeMap() {
       if (!mapRef.current || !window.google?.maps) {

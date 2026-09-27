@@ -118,7 +118,7 @@ function ListingBody({ service, requests, onClose, onEdit }: { service: Service;
                 {service.availability.length > 0 && " (New York time)"}
               </p>
             </section>
-            <div className="flex flex-wrap items-start gap-3 lg:max-w-[460px] lg:shrink-0">
+            <div className="flex flex-wrap items-center gap-3 lg:max-w-[460px] lg:shrink-0">
               <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
               {!service.own && service.providerId && (
                 <Link
@@ -163,7 +163,7 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
     return <p role="status" className="max-w-[260px] font-mono text-base font-bold lg:text-lg">Request sent. We&apos;ll text you when {providerFirstName} answers.</p>;
   }
   if (!service.providerTextsEnabled) {
-    return <p className="max-w-[260px] font-mono text-base text-barter-gray lg:text-lg">Requests aren&apos;t available for this provider yet</p>;
+    return <p className="min-w-0 max-w-[260px] flex-[1_1_180px] font-mono text-base text-barter-gray lg:text-lg">Requests aren&apos;t available for this provider yet</p>;
   }
   return (
     <button type="button" onClick={onContact} aria-label={`Contact ${service.providerName}`} className={contactButton}>

@@ -5,7 +5,7 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
 import { handleInboundText, parseReply, type InboundDeps } from "../lib/booking-replies";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, bookingCode } from "../lib/booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, bookingCode, whichOneText } from "../lib/booking-texts";
 import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections } from "../lib/exchange-schema";
 import { createExchangeService } from "../lib/exchange-service";
 
@@ -237,4 +237,35 @@ test("handleInboundText resolves instead of throwing when the messenger fails se
   const texts = throwingMessenger((text) => text.includes("You accepted"));
   await assert.doesNotReject(handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "Yes" }));
   assert.equal((await exchangeCollections(db).bookings.findOne({ _id: first._id }))?.status, "accepted");
+});
+
+// Emily has Sam's request waiting and, on an accepted booking, Barry's (or Emily's own) suggested time.
+async function overlap(numbers: [number, number, number], suggestedBy: "provider" | "other") {
+  const emily = await person(numbers[0], "Emily"), sam = await person(numbers[1], "Sam"), barry = await person(numbers[2], "Barry");
+  const waiting = await request(sam.id, emily.id, "Piano Lessons");
+  const active = await request(barry.id, emily.id, "Guitar Lessons");
+  await createExchangeService(db, client).transitionBooking(emily.id, active._id, "accept");
+  const byUserId = suggestedBy === "other" ? barry.id : emily.id;
+  await exchangeCollections(db).bookings.updateOne({ _id: active._id }, { $set: { proposal: { startsAt: new Date(Date.now() + 86_400_000), byUserId, createdAt: new Date() } } });
+  return { emily, waiting };
+}
+
+test("a bare YES or NO asks which one when a request and the other person's suggested time both wait on the sender", async () => {
+  const { emily, waiting } = await overlap([50, 51, 52], "other");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "No." }, { coordinate: assistant.fn });
+  const code = bookingCode(waiting._id);
+  assert.deepEqual(texts.sent, [{ phone: emily.phone, text: whichOneText({ requesterFirstName: "Sam", requestTitle: "Piano Lessons", code, suggestedBy: "Barry", suggestionTitle: "Guitar Lessons" }) }]);
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: waiting._id }))?.status, "requested");
+  assert.equal(assistant.calls.length, 0);
+  // With the code, the reply answers the request.
+  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: `no ${code}` }, { coordinate: assistant.fn });
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: waiting._id }))?.status, "declined");
+});
+
+test("a bare YES answers the request when the only suggestion waiting is the sender's own", async () => {
+  const { emily, waiting } = await overlap([53, 54, 55], "provider");
+  await handleInboundText(db, client, messenger(), { senderPhone: emily.phone, text: "yes" }, { coordinate: fakeCoordinate().fn });
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: waiting._id }))?.status, "accepted");
 });

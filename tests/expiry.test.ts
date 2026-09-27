@@ -237,3 +237,21 @@ test("authorizeCron decides without the database: 503 without a secret, 401 when
 test("REQUEST_LIFETIME_MS is 48 hours", () => {
   assert.equal(REQUEST_LIFETIME_MS, 48 * HOUR);
 });
+
+test("a failed lookup after a cancel doesn't stop the sweep", async () => {
+  const lee = await person("Lee"), max = await person("Max");
+  const first = await requestFixture(lee.id, max.id), second = await requestFixture(lee.id, max.id, "Piano Lessons");
+  const now = new Date();
+  await age(first._id, 49 * HOUR, now);
+  await age(second._id, 50 * HOUR, now);
+  // Users can't be read, as if the database failed right after each cancel.
+  const failingUsers = new Proxy(db, {
+    get: (target, property) => property === "collection"
+      ? (name: string) => (name === "user" ? { findOne: () => Promise.reject(new Error("user lookup failed")) } : target.collection(name))
+      : Reflect.get(target, property),
+  });
+  const texts = messenger();
+  await assert.doesNotReject(expireStaleRequests(failingUsers, client, texts, now));
+  for (const booking of [first, second]) assert.equal((await exchangeCollections(db).bookings.findOne({ _id: booking._id }))?.status, "cancelled");
+  assert.ok(!texts.sent.some((sent) => sent.phone === lee.phone || sent.phone === max.phone));
+});

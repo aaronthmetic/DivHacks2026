@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ObjectId } from "mongodb";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, assistantText, bookingCode, bookingCodes, confirmedText, declinedTexts, expiredTexts, noteText, proposalText, requestSentText, requestText, sentText, startsWithPreposition, waitingListText } from "../lib/booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, assistantText, bookingCode, bookingCodes, confirmedText, declinedTexts, expiredTexts, noteText, proposalText, requestSentText, requestText, sentText, startsWithPreposition, waitingListText, whichOneText } from "../lib/booking-texts";
 import { coinsLabel, priceLabel } from "../lib/listing-data";
 
 const barry = { requesterName: "Barry Chen", requesterFirstName: "Barry", title: "Guitar Lessons" };
@@ -125,4 +125,9 @@ test("a place that's just a preposition reads naturally, the same rule lib/profi
     proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when: "Sat, Oct 3 at 11 AM", place: "on" }),
     "barter: Emily suggests Sat, Oct 3 at 11 AM on for Guitar Lessons. Reply OK to confirm, or suggest another time.",
   );
+});
+
+test("an ambiguous YES or NO gets a question naming both", () => {
+  assert.equal(whichOneText({ requesterFirstName: "Sam", requestTitle: "Piano Lessons", code: "19C2", suggestedBy: "Barry", suggestionTitle: "Guitar\nLessons" }),
+    "barter: Do you mean Sam's Piano Lessons request (19C2) or Barry's suggested time for Guitar Lessons? Reply YES 19C2 or NO 19C2 for the request, or OK or another time for the suggestion.");
 });

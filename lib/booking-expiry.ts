@@ -25,10 +25,18 @@ export async function expireStaleRequests(db: Db, client: MongoClient, messenger
       continue;
     }
     expired++;
-    const [requester, provider] = await Promise.all([
-      db.collection("user").findOne({ _id: booking.requesterId }),
-      db.collection("user").findOne({ _id: booking.providerId }),
-    ]);
+    let people;
+    try {
+      people = await Promise.all([
+        db.collection("user").findOne({ _id: booking.requesterId }),
+        db.collection("user").findOne({ _id: booking.providerId }),
+      ]);
+    } catch (error) {
+      // The request is already cancelled and refunded; keep sweeping even though nobody can be texted about it.
+      logAuthFailure("Request expiry", error);
+      continue;
+    }
+    const [requester, provider] = people;
     const texts = expiredTexts({
       title: booking.serviceSnapshot.title,
       requesterFirstName: String(requester?.firstName ?? "someone"),

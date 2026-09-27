@@ -54,11 +54,11 @@ The profile's Bookings carousel shows the agreed time in New York time (it shows
 
 Part A's first two checks stay: texts from unknown numbers are logged and ignored, and a person's first text turns texts on. After that, barter runs the expiry check, logs the text, and routes it:
 
-1. **YES or NO (Part A's parser):** goes to Part A when it carries a code or when the sender has requests waiting for their answer as a provider.
+1. **YES or NO (Part A's parser):** goes to Part A when it carries a code or when the sender has requests waiting for their answer as a provider. A bare YES or NO that could also answer the other person's suggested time gets a question instead, because a decline can't be undone: `barter: Do you mean Sam's Piano Lessons request (19C2) or Barry's suggested time for Guitar Lessons? Reply YES 19C2 or NO 19C2 for the request, or OK or another time for the suggestion.`
 2. **Anything else, or YES/NO without a waiting request:** goes to the assistant when the sender has an active booking. An active booking has status `accepted` and the sender is its provider or requester.
 3. **Otherwise:** Part A's replies, as today (help text, or "You don't have any requests waiting").
 
-Because proposals ask for "OK", a bare YES only reaches Part A when the sender really has a request waiting for their answer.
+Because proposals ask for "OK", a bare YES or NO reaches Part A only when a request is waiting for the sender's answer and no suggestion is.
 
 ## Data
 
@@ -77,12 +77,13 @@ Because proposals ask for "OK", a bare YES only reaches Part A when the sender r
   - `propose(db, actorId, bookingId, { startsAt, place })` checks that the actor is the provider or requester, the booking is accepted, the time is at least 30 minutes away and at most 60 days away, and the place is one line of at most 120 characters. It then saves the proposal.
   - `confirm(db, actorId, bookingId, proposalCreatedAt)` checks that a proposal exists, that it was made by the other person, and that it's the proposal the actor saw. It then sets `scheduledAt` and `place` and removes the proposal in one guarded update.
 - **`lib/coordinator.ts`:** `coordinate(db, messenger, llm, sender, text)`.
-  - It builds the context: the current New York date and time, the sender's active bookings with codes, each booking's details and availability, and the last 20 texts in the sender's thread.
+  - It builds the context: the current New York date and time, the sender's active bookings with codes, each booking's details and availability, and the last 20 texts in the sender's thread. The thread reaches the model as one labeled block of data, never as its own earlier turns, so words the other person wrote can't pose as barter's.
   - It offers three tools: `propose_time(code, startsAt, place?)`, where `startsAt` is a New York local time like `2026-10-03T11:00`; `confirm_time(code)`; and `send_note(code, text)`.
   - It runs at most 4 model steps, then texts the model's final reply to the sender, prefixed with "barter:" if needed and capped at 480 characters.
   - Tool results, including validation errors, go back to the model so it can explain or ask again. Relayed texts use the fixed wording above, never model-written text.
-- **`lib/booking-expiry.ts`:** `expireStaleRequests(db, client, messenger, now)` cancels up to 50 requests older than 48 hours per run, as the requester, which refunds the coins. It texts both people. A request that a reply changed in the meantime is skipped.
-- **`app/api/cron/expire-requests/route.ts`:** `GET`, allowed only with `Authorization: Bearer <CRON_SECRET>`, which Vercel sends to cron routes. It runs the expiry and returns the number of expired requests. `vercel.json` schedules it daily.
+  - One incoming text relays at most one proposal and one note per booking, and at most two texts in all. When something fails after a text already went out, the sender hears what was sent rather than being asked to try again.
+- **`lib/booking-expiry.ts`:** `expireStaleRequests(db, client, messenger, now)` cancels up to 50 requests older than 48 hours per run with the domain's `expireRequest`, which cancels and refunds only while a request is still waiting. A YES that lands mid-sweep wins, and overlapping sweeps text people once. It texts both people.
+- **`app/api/cron/expire-requests/route.ts`:** `GET`, allowed only with `Authorization: Bearer <CRON_SECRET>`, which Vercel sends to cron routes. It checks the secret before connecting to the database, runs the expiry, and returns the number of expired requests. `vercel.json` schedules it daily.
 - **`app/api/photon/webhook/route.ts`:** sets `maxDuration = 120`. The assistant runs inside `after()`, which shares the request's time limit.
 - **`lib/booking-texts.ts`:** the new texts above, and `acceptedTexts` updated to ask the provider for a time and place.
 - **`lib/booking-replies.ts`:** the routing above, plus the expiry check and logging of incoming texts.

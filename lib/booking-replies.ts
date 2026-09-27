@@ -1,7 +1,7 @@
 import type { Db, Document, MongoClient, ObjectId, WithId } from "mongodb";
 import { logAuthFailure } from "./auth-errors";
 import { InputError } from "./auth-validation";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCodes, declinedTexts, waitingListText } from "./booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCodes, declinedTexts, waitingListText, whichOneText } from "./booking-texts";
 import { expireStaleRequests } from "./booking-expiry";
 import { coordinate } from "./coordinator";
 import { exchangeCollections, type Booking } from "./exchange-schema";
@@ -27,6 +27,16 @@ export type InboundDeps = { llm?: Llm | null; now?: Date; coordinate?: typeof co
 // Whether the sender (as provider) has a request still waiting for a YES/NO answer.
 const hasWaitingRequest = (db: Db, providerId: ObjectId) =>
   exchangeCollections(db).bookings.findOne({ providerId, status: "requested" }, { projection: { _id: 1 } }).then(Boolean);
+// The newest accepted booking whose suggested time, made by the other person, waits on the sender.
+const suggestionFor = (db: Db, userId: ObjectId) =>
+  exchangeCollections(db).bookings.findOne({ status: "accepted", $or: [{ providerId: userId }, { requesterId: userId }], "proposal.byUserId": { $exists: true, $ne: userId } }, { sort: { "proposal.createdAt": -1 } });
+// Names the oldest waiting request and the suggestion, so the sender can say which one the reply was for.
+async function whichOne(db: Db, providerId: ObjectId, suggestion: Booking) {
+  const waiting = await exchangeCollections(db).bookings.find({ providerId, status: "requested" }).sort({ createdAt: 1, _id: 1 }).toArray();
+  const [request] = await listItems(db, waiting);
+  const proposer = await db.collection("user").findOne({ _id: suggestion.proposal!.byUserId }, { projection: { firstName: 1 } });
+  return whichOneText({ requesterFirstName: request.requesterFirstName, requestTitle: request.title, code: request.code, suggestedBy: String(proposer?.firstName ?? "someone"), suggestionTitle: suggestion.serviceSnapshot.title });
+}
 // Whether the sender, as either side, has an accepted booking the assistant can coordinate.
 const hasActiveBooking = (db: Db, userId: ObjectId) =>
   exchangeCollections(db).bookings.findOne({ status: "accepted", $or: [{ providerId: userId }, { requesterId: userId }] }, { projection: { _id: 1 } }).then(Boolean);
@@ -50,7 +60,13 @@ export async function handleInboundText(db: Db, client: MongoClient, messenger: 
     }
     const reply = parseReply(text);
     // Every branch is awaited here (not just returned) so a rejection is caught below instead of escaping past this try.
-    if (reply && (reply.code || await hasWaitingRequest(db, user._id))) { await answer(db, client, messenger, user, reply); return; }
+    if (reply && (reply.code || await hasWaitingRequest(db, user._id))) {
+      // A bare YES or NO could also answer the other person's suggested time; a decline can't be undone, so ask.
+      const suggestion = reply.code ? null : await suggestionFor(db, user._id);
+      if (suggestion) { await messenger.send(senderPhone, await whichOne(db, user._id, suggestion)); return; }
+      await answer(db, client, messenger, user, reply);
+      return;
+    }
     if (await hasActiveBooking(db, user._id)) {
       await (deps.coordinate ?? coordinate)(db, messenger, deps.llm ?? null, { _id: user._id, firstName: String(user.firstName), phoneNumber: senderPhone }, text, now);
       return;

@@ -78,6 +78,11 @@ export function waitingListText(waiting: { title: string; requesterFirstName: st
   return `barter: You have ${waiting.length} ${waiting.length === 1 ? "request" : "requests"} waiting: ${items}. Reply YES or NO with the code, like "YES ${waiting[0].code}".`;
 }
 
+/** A bare YES or NO when both a request and the other person's suggested time wait on the sender. */
+export function whichOneText({ requesterFirstName, requestTitle, code, suggestedBy, suggestionTitle }: { requesterFirstName: string; requestTitle: string; code: string; suggestedBy: string; suggestionTitle: string }) {
+  return `barter: Do you mean ${oneLine(requesterFirstName)}'s ${oneLine(requestTitle)} request (${code}) or ${oneLine(suggestedBy)}'s suggested time for ${oneLine(suggestionTitle)}? Reply YES ${code} or NO ${code} for the request, or OK or another time for the suggestion.`;
+}
+
 const PREPOSITION = /^(at|on|in|via|over|by)\b/i;
 
 /** Whether a place already reads naturally because it starts with a preposition ("On Zoom", "By the door"). Shared with lib/profile-data.ts so both agree. */

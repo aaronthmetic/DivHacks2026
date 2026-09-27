@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { Plus } from "lucide-react";
 
 import type {
@@ -57,6 +57,8 @@ export function Explorer({
   const [panel, setPanel] = useState<Panel | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [, startTransition] = useTransition();
 
   // Nothing is selected at first, because a selected zip hides every other listing
   // (remote ones included); `initialZip` only centers the map on phones.
@@ -273,11 +275,28 @@ export function Explorer({
       </main>
 
       <ListingModal
-        service={selected}
+        service={editing ? null : selected}
+        onEdit={selected?.own && selected.editable ? () => setEditing(true) : undefined}
         onClose={() =>
           setSelectedId(null)
         }
       />
+
+      {selected?.own && selected.editable && <CreateListingModal
+        key={selected.id}
+        open={editing}
+        listing={selected.editable}
+        categories={categories}
+        onClose={() => setEditing(false)}
+        onPublished={() => {
+          startTransition(() => { router.refresh(); setEditing(false); });
+        }}
+        onDeleted={() => {
+          setEditing(false);
+          setSelectedId(null);
+          router.refresh();
+        }}
+      />}
 
       <CreateListingModal
         open={creating}

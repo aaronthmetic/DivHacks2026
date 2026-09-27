@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { CreateListingModal } from "@/components/barter/create-listing";
+import { useState, useTransition } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Star } from "lucide-react";
 import type { ProfileCard, ProfileData } from "@/lib/profile-data";
 import { DEFAULT_AVATAR, starFill } from "@/lib/profile-display";
 import { ListingModal } from "@/components/barter/listing-modal";
-import type { Service } from "@/lib/barter/data";
+import type { CategoryOption, Service } from "@/lib/barter/data";
 import { Button } from "@/components/ui/button";
 
 export function Avatar({ src, name, large = false }: { src?: string | null; name: string; large?: boolean }) {
@@ -30,7 +32,10 @@ function BookingModal({ card, onClose }: { card: ProfileCard | undefined; onClos
     providerName: card.providerName ?? card.provider?.name ?? "Member", own: false,
   } : null} onClose={onClose} />;
 }
-function Carousel({ title, cards, listings = false }: { title: string; cards: ProfileCard[]; listings?: boolean }) {
+function Carousel({ title, cards, listings = false, categories = [], canEdit = false }: { title: string; cards: ProfileCard[]; listings?: boolean; categories?: CategoryOption[]; canEdit?: boolean }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const card = cards[Math.min(index, Math.max(0, cards.length - 1))];
@@ -53,11 +58,18 @@ function Carousel({ title, cards, listings = false }: { title: string; cards: Pr
         <p className="text-sm underline">View details</p>
       </button>
       <div className="mt-4 flex items-center justify-between gap-3">
-        <Button variant="outline" size="icon" aria-label={`Previous ${title.toLowerCase()}`} disabled={index === 0} onClick={() => setIndex(i => i - 1)}><ChevronLeft /></Button>
+        <Button variant="outline" size="icon" aria-label={`Previous ${title.toLowerCase()}`} disabled={index === 0} onClick={() => setIndex(Math.max(0, Math.min(index, cards.length - 1) - 1))}><ChevronLeft /></Button>
         <span aria-live="polite" className="text-sm">{Math.min(index + 1, cards.length)} of {cards.length}</span>
         <Button variant="outline" size="icon" aria-label={`Next ${title.toLowerCase()}`} disabled={index >= cards.length - 1} onClick={() => setIndex(i => i + 1)}><ChevronRight /></Button>
       </div>
-      {listings ? <ListingModal service={modalService} onClose={() => setSelectedId(null)} /> : <BookingModal card={selected} onClose={() => setSelectedId(null)} />}
+      {listings ? <>
+        <ListingModal service={editing ? null : modalService} onClose={() => setSelectedId(null)} onEdit={canEdit && selected?.editable ? () => setEditing(true) : undefined} />
+        {canEdit && selected?.editable && <CreateListingModal key={selected.id} open={editing} listing={selected.editable} categories={categories} onClose={() => setEditing(false)} onPublished={() => {
+          startTransition(() => { router.refresh(); setEditing(false); });
+        }} onDeleted={() => {
+          setEditing(false); setSelectedId(null); setIndex(i => Math.max(0, Math.min(i, cards.length - 2))); router.refresh();
+        }} />}
+      </> : <BookingModal card={selected} onClose={() => setSelectedId(null)} />}
     </> : <p className="py-12 text-center text-muted-foreground">{listings ? "No listings to show yet." : "No upcoming or pending bookings."}</p>}
   </section>;
 }
@@ -66,7 +78,7 @@ export function ProfileView({ profile, basePath }: { profile: ProfileData; baseP
     <div className="mx-auto max-w-5xl">
       <Link href="/" className="inline-flex items-center gap-2 text-sm text-barter-navy"><ArrowLeft className="size-4" />Back to barter</Link>
       <header className="flex flex-col items-center gap-4 py-10 text-center"><Avatar src={profile.image} name={profile.name} large /><h1 className="text-3xl font-bold text-barter-navy">{profile.name}</h1><Stars rating={profile.rating} count={profile.reviewCount} />{profile.isOwner && <Link href="/profile/edit" className="rounded-lg bg-barter-navy px-6 py-3 font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-4">Edit profile</Link>}</header>
-      <div className={`grid items-start gap-6 ${profile.isOwner ? "md:grid-cols-2" : ""}`}><Carousel title="Listings" cards={profile.listings} listings />{profile.isOwner && <Carousel title="Bookings" cards={profile.bookings} />}</div>
+      <div className={`grid items-start gap-6 ${profile.isOwner ? "md:grid-cols-2" : ""}`}><Carousel title="Listings" cards={profile.listings} listings canEdit={profile.isOwner} categories={profile.categories} />{profile.isOwner && <Carousel title="Bookings" cards={profile.bookings} />}</div>
       <section className="mt-8 rounded-2xl border bg-white p-6" aria-labelledby="reviews-heading"><h2 id="reviews-heading" className="text-xl font-semibold text-barter-navy">Reviews</h2>
         {profile.reviews.length ? <ul className="divide-y">{profile.reviews.map(review => <li key={review.id} className="space-y-3 py-6"><div className="flex items-center gap-3"><Avatar src={review.authorImage} name={review.authorName} /><Link href={`/profile/${review.authorId}`} className="font-medium underline">{review.authorName}</Link><time dateTime={review.date} className="ml-auto text-sm text-muted-foreground">{review.date}</time></div><Stars rating={review.rating} /><p className="whitespace-pre-wrap break-words">{review.comment}</p></li>)}</ul> : <p className="py-6 text-muted-foreground">No reviews yet.</p>}
         {profile.reviewPages > 1 && <nav aria-label="Review pages" className="flex items-center justify-between gap-4 border-t pt-4">{profile.reviewsPage > 1 ? <Link className="underline" href={`${basePath}?reviewsPage=${profile.reviewsPage - 1}#reviews-heading`}>Previous</Link> : <span className="text-muted-foreground">Previous</span>}<span>Page {profile.reviewsPage} of {profile.reviewPages}</span>{profile.reviewsPage < profile.reviewPages ? <Link className="underline" href={`${basePath}?reviewsPage=${profile.reviewsPage + 1}#reviews-heading`}>Next</Link> : <span className="text-muted-foreground">Next</span>}</nav>}

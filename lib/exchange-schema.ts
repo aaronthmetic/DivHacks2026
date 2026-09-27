@@ -15,6 +15,8 @@ export interface Genre { _id: ObjectId; name: string; slug: string; description:
 export type ServiceFrequency =
   | { type: "single" }
   | { type: "recurring"; interval: number; unit: "day" | "week" | "month" };
+/** A weekly window in New York time: `day` is 0 (Sunday) to 6 (Saturday); times are minutes after midnight. */
+export interface AvailabilityWindow { day: number; start: number; end: number }
 export interface Service {
   _id: ObjectId; userId: ObjectId; genreId: ObjectId; title: string; description: string;
   zipCode?: string; countryCode?: string; deliveryMode: "remote" | "in_person" | "either";

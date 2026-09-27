@@ -11,10 +11,13 @@ export function ReviewModal({
   bookingId,
   serviceTitle,
   canReview = true,
+  reviewed = false,
 }: {
   bookingId: string;
   serviceTitle: string;
   canReview?: boolean;
+  /** Whether the viewer already reviewed this booking. */
+  reviewed?: boolean;
 }) {
   const router = useRouter();
 
@@ -25,8 +28,9 @@ export function ReviewModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Bookings have no page of their own, so the review returns to the map.
   function closeModal() {
-    router.push(`/bookings/${bookingId}`);
+    router.push("/");
   }
 
   async function submitReview() {
@@ -60,15 +64,16 @@ export function ReviewModal({
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const data = await response.json().catch(() => null);
         throw new Error(
-          data.error ?? "Failed to submit review",
+          response.status === 429
+            ? "Too many changes. Please wait a minute and try again."
+            : data?.error?.message ?? "Failed to submit review",
         );
       }
 
-      router.push(`/bookings/${bookingId}?reviewed=1`);
+      router.push("/");
       router.refresh();
     } catch (error) {
       console.error("Failed to submit review:", error);
@@ -125,8 +130,9 @@ export function ReviewModal({
         {!canReview ? (
           <div className="mt-10">
             <p className="font-mono text-lg text-barter-gray">
-              This booking must be completed before you can
-              leave a review.
+              {reviewed
+                ? "You already reviewed this booking. Thanks!"
+                : "This booking must be completed before you can leave a review."}
             </p>
 
             <button
@@ -134,7 +140,7 @@ export function ReviewModal({
               onClick={closeModal}
               className="mt-8 flex h-14 w-full items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 lg:h-[68px] lg:text-2xl"
             >
-              Back to booking
+              Back to barter
             </button>
           </div>
         ) : (

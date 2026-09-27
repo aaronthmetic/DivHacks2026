@@ -1,5 +1,5 @@
-// Types for the barter UI. Listings come from MongoDB (lib/listing-data.ts); zip
-// areas and notifications are still mock data until they have a real source.
+// Types for the barter UI. Listings (lib/listing-data.ts) and notifications
+// (lib/notification-data.ts) come from MongoDB; zip areas are static.
 
 import type { EditableListing } from "../listing-edit";
 import type { AvailabilityWindow } from "../exchange-schema";
@@ -32,6 +32,8 @@ export type Service = {
   /** Whether the signed-in viewer posted this listing. */
   own: boolean;
   editable?: EditableListing;
+  /** The viewer's open booking of this listing, if any: it's waiting for an answer, or accepted and ready to finish. */
+  booking?: { id: string; status: "requested" | "accepted" | "awaiting_confirmation" };
 };
 
 export type CategoryOption = { id: string; name: string };
@@ -45,8 +47,12 @@ export type ZipArea = {
 
 export type Notification = {
   id: string;
-  text: string;
+  message: string;
+  /** An in-app path to open when it's clicked. */
+  href?: string;
   read: boolean;
+  /** ISO timestamp. */
+  createdAt: string;
 };
 
 // Official zip center points from NYC Open Data. Outlines are in
@@ -58,15 +64,4 @@ export const zipAreas: ZipArea[] = [
   { zip: "10027", neighborhood: "Morningside Heights", lat: 40.81266, lng: -73.95498 },
   { zip: "10029", neighborhood: "East Harlem", lat: 40.79225, lng: -73.94733 },
   { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8248, lng: -73.95021 },
-];
-
-export const notifications: Notification[] = [
-  { id: "n1", text: "Emily messaged you about Guitar Lessons", read: false },
-  { id: "n2", text: "New request: Calculus Tutoring", read: false },
-  { id: "n3", text: "Bike Tune-Ups got a 5★ review", read: true },
-  { id: "n4", text: "Alex wants to trade for Piano Lessons", read: false },
-  { id: "n5", text: "Dog Walking tomorrow at 9:00 AM", read: true },
-  { id: "n6", text: "Your profile is 80% complete", read: true },
-  { id: "n7", text: "3 new services near 10027", read: true },
-  { id: "n8", text: "Welcome to barter!", read: true },
 ];

@@ -29,12 +29,20 @@ export function frequencyLabel(frequency: ServiceDocument["frequency"]) {
 export async function getExplorerData(db: Db, viewerId: string): Promise<{ listings: Service[]; categories: CategoryOption[]; balance: number; textsEnabled: boolean }> {
   const c = exchangeCollections(db);
   const viewer = new ObjectId(viewerId);
-  const [services, genres, account, viewerUser] = await Promise.all([
+  const [services, genres, account, viewerUser, openBookings] = await Promise.all([
     c.services.find({ status: "active" }).sort({ createdAt: -1, _id: -1 }).limit(LISTING_LIMIT).toArray(),
     c.genres.find({ isActive: true }).sort({ name: 1 }).toArray(),
     c.accounts.findOne({ userId: viewer }, { projection: { availableCredits: 1 } }),
     db.collection("user").findOne({ _id: viewer }, { projection: { textsEnabledAt: 1 } }),
+    c.bookings.find({ requesterId: viewer, status: { $in: ["requested", "accepted", "awaiting_confirmation"] } }, { projection: { serviceId: 1, status: 1 } })
+      .sort({ createdAt: -1 }).toArray(),
   ]);
+  // The viewer's newest open booking per listing, so its modal can show the request or finish it.
+  const openBooking = new Map<string, NonNullable<Service["booking"]>>();
+  for (const booking of openBookings) {
+    const key = booking.serviceId.toHexString();
+    if (!openBooking.has(key)) openBooking.set(key, { id: booking._id.toHexString(), status: booking.status as NonNullable<Service["booking"]>["status"] });
+  }
   const providerIds = [...new Map(services.map((s) => [s.userId.toHexString(), s.userId])).values()];
   const providers = await db.collection("user").find({ _id: { $in: providerIds } }, { projection: { name: 1, rating: 1, numberOfReviews: 1, textsEnabledAt: 1 } }).toArray();
   const provider = new Map(providers.map((p) => [p._id.toHexString(), p]));
@@ -46,8 +54,10 @@ export async function getExplorerData(db: Db, viewerId: string): Promise<{ listi
     if (!category) return [];
     const owner = provider.get(s.userId.toHexString());
     const zip = s.zipCode ?? null;
+    const booking = openBooking.get(s._id.toHexString());
     return [{
       ...(s.userId.equals(viewer) ? { editable: editableListing(s) } : {}),
+      ...(booking ? { booking } : {}),
       id: s._id.toHexString(), title: s.title, description: s.description, category,
       images: (s.images ?? []).map((id) => `/api/images/${id.toHexString()}`),
       rating: Number.isFinite(owner?.rating) ? Math.max(0, Math.min(5, owner!.rating)) : 0,

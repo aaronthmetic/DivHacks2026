@@ -11,6 +11,7 @@
 | `creditAccount` | One account per user; available and held balances. |
 | `creditTransaction` | Append-only balance deltas, account/booking references, operation type, unique idempotency key, creation time. |
 | `review` | Completed booking, author, other participant, rating from 1–5, comment. One per author per booking. |
+| `notification` | Recipient (`userId`), optional actor, type, message, optional booking/service/review references and link (`href`), read flag and `readAt`, creation time. |
 
 ## Credit units and pricing
 
@@ -28,19 +29,20 @@ Construct `createExchangeService(db, client)` with a database and its owning Mon
 
 - `grantWelcome(userId, session?)`: grant 1000 units once to a complete profile. The optional session must already be in a transaction; otherwise the method creates one.
 - `createService(userId, input)`: validate a complete provider, active genre, and service fields.
-- `requestBooking(requesterId, serviceId, { durationMinutes?, scheduledAt? })`: snapshot an active listing and reserve the total from the requester.
+- `requestBooking(requesterId, serviceId, { durationMinutes?, scheduledAt?, preferredWindow?, note? })`: snapshot an active listing and reserve the total from the requester.
 - `transitionBooking(actorId, bookingId, action)`: enforce participant roles and booking transitions, with transactional refunds/payment.
+- `expireRequest(bookingId)`: cancel a request nobody answered and refund it, only while it's still `requested`.
 - `createReview(authorId, bookingId, rating, comment)`: derive the subject from the booking and enforce completed-booking participation.
 
-Actor IDs must come from authenticated server sessions, never a client-supplied identity. Booking requests come through `POST /api/bookings`; see "Booking requests" below.
+Each of the booking and review operations also writes a `notification` for the person it affects, in the same transaction; see "Finishing, reviews and notifications" below. Actor IDs must come from authenticated server sessions, never a client-supplied identity. Booking requests come through `POST /api/bookings`; see "Booking requests" below.
 
 ## Listing endpoint and map page
 
 `POST /api/services` publishes a listing for the signed-in user through `createService`. It takes a multipart form: `title`, `genreId`, `description`, `deliveryMode`, `zipCode` (5 digits; optional only for `remote`, and stored with country `US`), `coins` (a whole number, stored as `creditRate = coins × 100`), `per` (`hour` → `hourly`, `service` → `fixed`), `frequency` (`single` or `recurring`, with `interval` and `unit` when recurring), `availability` (a JSON array of `{ day, start, end }` with `HH:MM` 24-hour times, at most 1,000 characters), and up to five `images` (JPEG, PNG, or WebP). Like the profile endpoints it requires the configured `Origin`, a complete account, and the shared 20-per-minute mutation limit; it rejects unknown or repeated fields. The whole request is capped at 4 MiB, below Vercel's 4.5 MB function limit, and the form shrinks larger photos in the browser first. Photos are validated by signature and stored in GridFS with `{ ownerId, purpose: "service" }` metadata before the listing is created; if creation fails they are deleted. It returns `201 { success: true, id }` or `{ error: { code, message } }` with 400, 401, 403, 413, 429, or 503.
 
-The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens a request form when both people have turned on texts. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
+The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens a request form when both people have turned on texts. A listing the viewer has an open request on carries `booking: { id, status }` (their newest `requested`, `accepted` or `awaiting_confirmation` booking), so its modal shows "Request sent" while it waits and "Finish Barter" once accepted. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
 
-The provider can accept or decline a requested booking. Either participant can cancel a requested or accepted booking. The provider marks an accepted booking delivered (`awaiting_confirmation`); the requester confirms to complete and pay. Repeating an authorized transition whose target is already current is a no-op. Invalid transitions fail without changing balances. Decline/cancel release held credits; completion removes the requester's hold and increases the provider's available balance. There is no automatic settlement or dispute workflow.
+The provider can accept or decline a requested booking. Either participant can cancel a requested or accepted booking. The requester confirms an accepted booking to complete it and pay; the provider may first mark it delivered (`awaiting_confirmation`), which the requester confirms the same way. Repeating an authorized transition whose target is already current is a no-op. Invalid transitions fail without changing balances. Decline/cancel release held credits; completion removes the requester's hold and increases the provider's available balance. There is no automatic settlement or dispute workflow.
 
 Each requestBooking call creates a new booking; transport-level retries should not blindly repeat that call. Settlement and grants use deterministic ledger keys and state checks for idempotency. The domain exposes no ledger editing operation. Direct administrative database writes can bypass these application rules.
 
@@ -75,19 +77,29 @@ Once a booking is `accepted`, the same thread lets both people agree on a time a
 
 **Expiry**: `GET /api/cron/expire-requests` requires `Authorization: Bearer <CRON_SECRET>` (which Vercel sends automatically to its cron routes) and cancels `requested` bookings older than 48 hours through `expireRequest`, which releases the held coins only while a request is still waiting (so a late YES wins and overlapping sweeps text people once), texting both people; it checks the secret before touching the database and returns the number expired. `vercel.json` schedules it daily, and barter also runs the same sweep on every handled text, so delivery is best effort and safe to run twice.
 
+## Finishing, reviews and notifications
+
+- **`PATCH /api/bookings/[id]`:** takes JSON `{ action: "confirm" }` and nothing else ("Finish Barter" in the listing modal). It needs the configured `Origin`, a complete account and the shared rate limit, then calls `transitionBooking(…, "confirm")`: only the requester can finish, from `accepted` or `awaiting_confirmation`, and the held coins move to the provider once (a repeat changes nothing). It returns `{ success: true, id, status }`, or `{ error: { code, message } }` with 400, 401, 403, 429 or 503. The modal then opens `/bookings/[id]/review`.
+- **`/bookings/[id]/review`:** only the booking's two people can open it; anyone else gets a 404. The form shows once the booking is completed and the viewer hasn't reviewed it.
+- **`POST /api/reviews`:** takes JSON `{ bookingId, rating, comment }` with the same checks and calls `createReview`, so the reviewed person's rating updates in the same transaction. It returns `201 { success: true, id }`, 409 when the viewer already reviewed that booking, or 400, 401, 403, 429 or 503.
+- **Notifications:**
+  - `requestBooking` notifies the provider and confirms the sent request to the requester. `transitionBooking` notifies the other person of each accept, decline, cancel, delivery and completion. `expireRequest` notifies the requester, and `createReview` the reviewed person.
+  - Each is written inside the change's own transaction, so a notification exists only if its change committed. Messages name people by first name.
+  - The header lists the viewer's 20 newest (`getNotifications` in `lib/notification-data.ts`). `PATCH /api/notifications/[id]` needs the configured `Origin` and a session, marks one of the viewer's own notifications read, and returns 404 for anyone else's.
+
 ## Setup and existing users
 
 MongoDB must support multi-document transactions (a replica set or sharded cluster, including Atlas). Run `npm run db:indexes` to install both authentication and exchange indexes. Startup also builds the exchange indexes in the background; a failure there is logged and never blocks authentication. Duplicate existing records must be resolved before unique indexes can be installed. No production database migration is executed by the source changes alone.
 
 Every new session (registration or sign-in) grants missing welcome credits to complete users after the authentication transaction commits. A failed grant is logged and never blocks authentication; the next session or profile update retries it. Google profile completion and its welcome grant commit together. Incomplete users receive no credits. Users who already have a welcome ledger entry skip the grant transaction entirely. Providers without a credit account (for example, accounts created before welcome grants existed) get an empty one when their service is first booked, so settlement can always pay them.
 
-**Verification:** requests require both people to have turned on texts, which means texting barter from their own phone and proves they own the number. Welcome credits still go to accounts whose email and phone are unverified, so add verification or another abuse control before exposing review endpoints. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
+**Verification:** requests require both people to have turned on texts, which means texting barter from their own phone and proves they own the number. Reviews need a completed booking, so each one traces back to two phones that texted barter; someone with two phones can still review themselves, and welcome credits still go to accounts whose email and phone are unverified, so add another abuse control before relying on ratings. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
 Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Free-text messaging between people, distance search, cash conversion, platform fees, and moderation remain future additions.
 
 ## Verification
 
-`npm test` uses temporary MongoDB replica sets and covers onboarding, pricing, reference/location validation, immutable snapshots, concurrent spending, refunds, settlement retries, transaction rollback, review ownership, booking coordination and its LLM client, the text log, and request expiry. `npm run typecheck` and `npm run lint` check static correctness.
+`npm test` uses temporary MongoDB replica sets and covers onboarding, pricing, reference/location validation, immutable snapshots, concurrent spending, refunds, settlement retries, transaction rollback, review ownership, finishing a booking, the review endpoint, notifications, booking coordination and its LLM client, the text log, and request expiry. `npm run typecheck` and `npm run lint` check static correctness.
 
 ## User review fields
 

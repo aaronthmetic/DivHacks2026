@@ -3,54 +3,13 @@
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
-import type {
-  Notification,
-  ZipArea,
-} from "@/lib/barter/data";
-
-import { cn } from "@/lib/utils";
+import type { ZipArea } from "@/lib/barter/data";
 
 export type ServiceFilters = {
   categories: string[];
   zips: string[];
   minRating: number;
 };
-
-export function NotificationsPanel({
-  notifications,
-}: {
-  notifications: Notification[];
-}) {
-  return (
-    <ul className="border-x border-b border-barter-line">
-      {notifications.map(
-        (notification) => (
-          <li
-            key={notification.id}
-            className={cn(
-              "flex h-[68px] items-center justify-between gap-4 border-t border-barter-line px-6 text-[15px] lg:px-9",
-              notification.read
-                ? "bg-barter-read text-barter-gray"
-                : "bg-white text-black",
-            )}
-          >
-            <span className="truncate">
-              {notification.text}
-            </span>
-
-            {!notification.read && (
-              <span className="size-[13px] shrink-0 rounded-full bg-barter-dot">
-                <span className="sr-only">
-                  Unread
-                </span>
-              </span>
-            )}
-          </li>
-        ),
-      )}
-    </ul>
-  );
-}
 
 const RATINGS = [
   {

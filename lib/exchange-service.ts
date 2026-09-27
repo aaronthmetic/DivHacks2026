@@ -1,14 +1,22 @@
 // Server-side domain operations. Callers must derive actor IDs from authenticated sessions.
-import { ObjectId, type ClientSession, type Db, type MongoClient } from "mongodb";
+import { ObjectId, type ClientSession, type Db, type Document, type MongoClient } from "mongodb";
 import { snapshotService, validateScheduledAt } from "./booking-snapshot";
 import { InputError, isProfileComplete } from "./auth-validation";
 import { isValidAvailability } from "./availability";
-import { exchangeCollections, type AvailabilityWindow, type Booking, type Service, type ServiceFrequency } from "./exchange-schema";
+import { exchangeCollections, type AvailabilityWindow, type Booking, type Notification, type Service, type ServiceFrequency } from "./exchange-schema";
+import { coinsLabel } from "./listing-data";
+
+type NotificationInput = Omit<Notification, "_id" | "read" | "readAt" | "createdAt">;
 
 function requireValue(condition: unknown, message: string): asserts condition {
   if (!condition) throw new InputError(message);
 }
 function positiveInteger(value: number) { return Number.isSafeInteger(value) && value > 0; }
+function nameOf(user: Document | null | undefined) {
+  if (typeof user?.firstName === "string" && user.firstName.trim()) return user.firstName.trim();
+  if (typeof user?.name === "string" && user.name.trim()) return user.name.trim().split(/\s+/)[0];
+  return "Someone";
+}
 function welcomeKey(userId: ObjectId) { return `welcome:${userId}`; }
 const bookingTargets = { accept: "accepted", decline: "declined", cancel: "cancelled", deliver: "awaiting_confirmation", confirm: "completed" } as const;
 export function calculateCredits(pricingType: Service["pricingType"], creditRate: number, durationMinutes?: number) {
@@ -73,6 +81,17 @@ export function createExchangeService(db: Db, client: MongoClient) {
   async function completeUser(userId: ObjectId, session: ClientSession) {
     const user = await db.collection("user").findOne({ _id: userId }, { session });
     requireValue(user && isProfileComplete({ firstName: user.firstName, lastName: user.lastName, phoneNumber: user.phoneNumber, profileCompletedAt: user.profileCompletedAt }), "A complete user profile is required.");
+    return user;
+  }
+  // Notification texts name people by first name, like the booking texts do.
+  async function firstName(userId: ObjectId, session: ClientSession) {
+    const user = await db.collection("user").findOne({ _id: userId }, { projection: { firstName: 1, name: 1 }, session });
+    return nameOf(user);
+  }
+  // Notifications commit or roll back with the change they describe.
+  async function notify(session: ClientSession, entries: NotificationInput[]) {
+    const createdAt = new Date();
+    await c.notifications.insertMany(entries.map((entry) => ({ _id: new ObjectId(), ...entry, read: false, createdAt })), { session });
   }
   async function grantWelcome(userId: ObjectId, session: ClientSession) {
     // The ledger is append-only, so an existing key means the grant already committed.
@@ -122,11 +141,11 @@ export function createExchangeService(db: Db, client: MongoClient) {
     async requestBooking(requesterId: ObjectId, serviceId: ObjectId, options: { durationMinutes?: number; scheduledAt?: Date; preferredWindow?: AvailabilityWindow; note?: string } = {}) {
       const note = requestNote(options.note);
       return transaction(async (session) => {
-        await completeUser(requesterId, session);
+        const requester = await completeUser(requesterId, session);
         const service = await c.services.findOne({ _id: serviceId, status: "active" }, { session });
         requireValue(service, "Active service not found.");
         requireValue(!service.userId.equals(requesterId), "You cannot book your own service.");
-        await completeUser(service.userId, session);
+        const provider = await completeUser(service.userId, session);
         await ensureAccount(service.userId, session);
         requireValue(await c.genres.findOne({ _id: service.genreId, isActive: true }, { session }), "An active genre is required.");
         validateScheduledAt(options.scheduledAt);
@@ -136,6 +155,12 @@ export function createExchangeService(db: Db, client: MongoClient) {
         const booking: Booking = { _id: new ObjectId(), serviceId, providerId: service.userId, requesterId, serviceSnapshot: snapshotService(service), ...(service.pricingType === "hourly" ? { durationMinutes: options.durationMinutes } : {}), ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}), ...(preferredWindow ? { preferredWindow } : {}), ...(note ? { note } : {}), totalCredits, status: "requested", createdAt: now, updatedAt: now };
         await move(requesterId, booking, "reserve", -totalCredits, totalCredits, session);
         await c.bookings.insertOne(booking, { session });
+        const about = { bookingId: booking._id, serviceId };
+        await notify(session, [
+          // Providers answer by text, so their notification has nothing to open.
+          { userId: service.userId, actorId: requesterId, type: "booking_requested", message: `${nameOf(requester)} requested ${service.title}. Reply YES or NO to our text to answer.`, ...about },
+          { userId: requesterId, actorId: service.userId, type: "system", message: `Your request for ${service.title} was sent to ${nameOf(provider)}. We're holding ${coinsLabel(totalCredits)} until ${nameOf(provider)} answers.`, ...about, href: "/profile" },
+        ]);
         return booking;
       });
     },
@@ -149,7 +174,9 @@ export function createExchangeService(db: Db, client: MongoClient) {
         const provider = actorId.equals(booking.providerId), requester = actorId.equals(booking.requesterId);
         requireValue(action === "cancel" ? provider || requester : action === "confirm" ? requester : provider, "This action is not allowed for this user.");
         if (booking.status === target) return booking;
-        requireValue(action === "cancel" ? ["requested", "accepted"].includes(booking.status) : action === "deliver" ? booking.status === "accepted" : action === "confirm" ? booking.status === "awaiting_confirmation" : booking.status === "requested", "Invalid booking transition.");
+        // The requester can confirm (finish and pay) once the booking is accepted; the provider's
+        // "delivered" step is optional.
+        requireValue(action === "cancel" ? ["requested", "accepted"].includes(booking.status) : action === "deliver" ? booking.status === "accepted" : action === "confirm" ? ["accepted", "awaiting_confirmation"].includes(booking.status) : booking.status === "requested", "Invalid booking transition.");
         const now = new Date();
         const changes = { status: target, updatedAt: now, ...(action === "deliver" ? { providerCompletedAt: now } : {}), ...(action === "confirm" ? { requesterConfirmedAt: now } : {}) };
         const result = await c.bookings.updateOne({ _id: bookingId, status: booking.status }, { $set: changes }, { session });
@@ -160,6 +187,22 @@ export function createExchangeService(db: Db, client: MongoClient) {
           await move(booking.requesterId, booking, "payment", 0, -amount, session);
           await move(booking.providerId, booking, "earning", amount, 0, session);
         }
+        const actor = await firstName(actorId, session), title = booking.serviceSnapshot.title;
+        const one = amount === 100;
+        const refund = `Your ${coinsLabel(amount)} ${one ? "is" : "are"} back in your balance.`;
+        const about = { actorId, bookingId, serviceId: booking.serviceId };
+        const toRequester = { ...about, userId: booking.requesterId, href: "/profile" };
+        const notice: Record<typeof action, NotificationInput> = {
+          accept: { ...toRequester, type: "booking_accepted", message: `${actor} accepted your ${title} request.` },
+          decline: { ...toRequester, type: "booking_declined", message: `${actor} declined your ${title} request. ${refund}` },
+          cancel: provider
+            ? { ...toRequester, type: "booking_cancelled", message: `${actor} cancelled your ${title} booking. ${refund}` }
+            : { ...about, userId: booking.providerId, type: "booking_cancelled", message: `${actor} cancelled the ${title} booking.` },
+          deliver: { ...toRequester, type: "booking_awaiting_confirmation", message: `${actor} marked ${title} as done. Finish the barter to pay them.` },
+          // The provider can now review the requester.
+          confirm: { ...about, userId: booking.providerId, type: "booking_completed", message: `${actor} finished the ${title} barter. ${coinsLabel(amount)} ${one ? "was" : "were"} added to your balance.`, href: `/bookings/${bookingId.toHexString()}/review` },
+        };
+        await notify(session, [notice[action]]);
         return { ...booking, ...changes };
       });
     },
@@ -170,6 +213,9 @@ export function createExchangeService(db: Db, client: MongoClient) {
         const booking = await c.bookings.findOneAndUpdate({ _id: bookingId, status: "requested" }, { $set: { status: "cancelled", updatedAt: new Date() } }, { session });
         if (!booking) return false;
         await move(booking.requesterId, booking, "release", booking.totalCredits, -booking.totalCredits, session);
+        const one = booking.totalCredits === 100;
+        await notify(session, [{ userId: booking.requesterId, type: "booking_cancelled", bookingId, serviceId: booking.serviceId, href: "/profile",
+          message: `Your ${booking.serviceSnapshot.title} request expired without an answer. Your ${coinsLabel(booking.totalCredits)} ${one ? "is" : "are"} back in your balance.` }]);
         return true;
       });
     },
@@ -194,6 +240,8 @@ export function createExchangeService(db: Db, client: MongoClient) {
           numberOfReviews: received.length,
           reviews: received.map((item) => item._id.toHexString()),
         } }, { session });
+        await notify(session, [{ userId: review.subjectUserId, actorId: authorId, type: "review_received", bookingId, serviceId: booking.serviceId, reviewId: review._id, href: "/profile",
+          message: `${await firstName(authorId, session)} left you a ${rating}-star review for ${booking.serviceSnapshot.title}.` }]);
         return review;
       });
     },

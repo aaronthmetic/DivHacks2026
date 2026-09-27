@@ -1,14 +1,18 @@
 import { requireSession } from "@/lib/session";
 import { getMongo } from "@/lib/mongodb";
 import { getExplorerData } from "@/lib/listing-data";
+import { getNotifications } from "@/lib/notification-data";
 import { Explorer } from "@/components/barter/explorer";
-import { notifications, zipAreas } from "@/lib/barter/data";
+import { zipAreas } from "@/lib/barter/data";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ search?: string | string[] }> }) {
   const { user } = await requireSession();
   const { search } = await searchParams;
   const { db } = await getMongo();
-  const { listings, categories, balance, textsEnabled } = await getExplorerData(db, user.id);
+  const [{ listings, categories, balance, textsEnabled }, notifications] = await Promise.all([
+    getExplorerData(db, user.id),
+    getNotifications(db, user.id),
+  ]);
   return (
     <Explorer
       services={listings}

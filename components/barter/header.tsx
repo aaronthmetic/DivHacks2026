@@ -5,7 +5,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  useEffect,
   useState,
   type ReactNode,
   type SVGProps,
@@ -45,25 +44,21 @@ export function Header({
     setNotificationsOpen,
   ] = useState(false);
 
-  const [
-    localNotifications,
-    setLocalNotifications,
-  ] = useState(notifications);
+  // Clicked notifications look read right away; the server's list catches up on the
+  // next refresh, and a failed update takes the ID back out.
+  const [readIds, setReadIds] = useState<string[]>([]);
 
   const [
     markingRead,
     setMarkingRead,
   ] = useState<string[]>([]);
 
-  /*
-   * Keep local notification state synchronized whenever
-   * the server sends a fresh list, such as after router.refresh().
-   */
-  useEffect(() => {
-    setLocalNotifications(
-      notifications,
-    );
-  }, [notifications]);
+  const localNotifications = notifications.map(
+    (notification) =>
+      readIds.includes(notification.id)
+        ? { ...notification, read: true }
+        : notification,
+  );
 
   const unreadCount =
     localNotifications.filter(
@@ -84,133 +79,50 @@ export function Header({
       );
     };
 
+  function openNotification(href?: string) {
+    if (!href) return;
+    setNotificationsOpen(false);
+    router.push(href);
+  }
+
   async function readNotification(
     notification: Notification,
   ) {
-    const id =
-      getNotificationId(
-        notification,
-      );
+    const { id, href } = notification;
 
-    const href =
-      getNotificationHref(
-        notification,
-      );
-
-    /*
-     * Already-read notifications do not need another database
-     * update. They can still navigate to their href.
-     */
+    // Already-read notifications need no update; they can still open their link.
     if (notification.read) {
-      if (href) {
-        setNotificationsOpen(
-          false,
-        );
-        router.push(href);
-      }
-
+      openNotification(href);
       return;
     }
 
-    if (!id) {
-      console.error(
-        "Notification does not have an id:",
-        notification,
-      );
+    if (markingRead.includes(id)) {
       return;
     }
 
-    if (
-      markingRead.includes(id)
-    ) {
-      return;
-    }
-
-    /*
-     * Optimistic update:
-     * immediately make it look read so the UI feels responsive.
-     */
-    setLocalNotifications(
-      (current) =>
-        current.map((item) =>
-          getNotificationId(
-            item,
-          ) === id
-            ? {
-                ...item,
-                read: true,
-              }
-            : item,
-        ),
-    );
-
-    setMarkingRead(
-      (current) => [
-        ...current,
-        id,
-      ],
-    );
+    setReadIds((current) => [...current, id]);
+    setMarkingRead((current) => [...current, id]);
 
     try {
-      const response =
-        await fetch(
-          `/api/notifications/${encodeURIComponent(
-            id,
-          )}`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              read: true,
-            }),
-          },
-        );
-
-      const data =
-        await response.json();
+      const response = await fetch(
+        `/api/notifications/${encodeURIComponent(id)}`,
+        { method: "PATCH" },
+      );
 
       if (!response.ok) {
-        throw new Error(
-          data.error ??
-            "Failed to mark notification as read.",
-        );
+        throw new Error(`Marking the notification read failed with ${response.status}.`);
       }
 
-      /*
-       * Navigate only after the notification has successfully
-       * been persisted as read.
-       */
-      if (href) {
-        setNotificationsOpen(
-          false,
-        );
-        router.push(href);
-      }
+      // Navigate only after the notification is saved as read.
+      openNotification(href);
     } catch (error) {
       console.error(
         "Failed to mark notification as read:",
         error,
       );
 
-      /*
-       * Revert the optimistic update if the request failed.
-       */
-      setLocalNotifications(
-        (current) =>
-          current.map(
-            (item) =>
-              getNotificationId(
-                item,
-              ) === id
-                ? {
-                    ...item,
-                    read: false,
-                  }
-                : item,
-          ),
+      setReadIds((current) =>
+        current.filter((value) => value !== id),
       );
     } finally {
       setMarkingRead(
@@ -504,29 +416,13 @@ export function Header({
                       notification,
                       index,
                     ) => {
-                      const id =
-                        getNotificationId(
-                          notification,
-                        );
+                      const text = notification.message;
 
-                      const text =
-                        getNotificationText(
-                          notification,
-                        );
-
-                      const loading =
-                        id
-                          ? markingRead.includes(
-                              id,
-                            )
-                          : false;
+                      const loading = markingRead.includes(notification.id);
 
                       return (
                         <button
-                          key={
-                            id ??
-                            `notification-${index}`
-                          }
+                          key={notification.id}
                           type="button"
                           disabled={
                             loading
@@ -620,74 +516,6 @@ export function Header({
   );
 }
 
-function getNotificationText(
-  notification: Notification,
-): string {
-  const value =
-    notification as Notification & {
-      message?: unknown;
-      text?: unknown;
-    };
-
-  if (
-    typeof value.message ===
-      "string" &&
-    value.message.trim()
-  ) {
-    return value.message;
-  }
-
-  if (
-    typeof value.text ===
-      "string" &&
-    value.text.trim()
-  ) {
-    return value.text;
-  }
-
-  return "Notification";
-}
-
-function getNotificationId(
-  notification: Notification,
-): string | null {
-  const value =
-    notification as Notification & {
-      id?: unknown;
-      _id?: unknown;
-    };
-
-  if (
-    typeof value.id ===
-    "string"
-  ) {
-    return value.id;
-  }
-
-  if (
-    typeof value._id ===
-    "string"
-  ) {
-    return value._id;
-  }
-
-  return null;
-}
-
-function getNotificationHref(
-  notification: Notification,
-): string | null {
-  const value =
-    notification as Notification & {
-      href?: unknown;
-    };
-
-  return typeof value.href ===
-    "string" &&
-    value.href.trim()
-    ? value.href
-    : null;
-}
 
 export function SearchInput({
   query,

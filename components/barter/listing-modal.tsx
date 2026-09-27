@@ -134,7 +134,11 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
   if (!canRequest) {
     return <Link href={`/profile/${service.providerId}`} aria-label={`Contact ${service.providerName}`} className={contactButton}>Contact</Link>;
   }
-  if (sent) {
+  if (service.booking && service.booking.status !== "requested") {
+    return <FinishBarter bookingId={service.booking.id} providerFirstName={providerFirstName} />;
+  }
+  // An open request (sent just now or earlier) waits for the provider's answer by text.
+  if (sent || service.booking) {
     return <p role="status" className="max-w-[260px] font-mono text-base font-bold lg:text-lg">Request sent. We&apos;ll text you when {providerFirstName} answers.</p>;
   }
   if (!service.providerTextsEnabled) {
@@ -144,6 +148,39 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
     <button type="button" onClick={onContact} aria-label={`Contact ${service.providerName}`} className={contactButton}>
       Contact
     </button>
+  );
+}
+
+// The requester pays the provider the coins held since the request, then reviews them.
+function FinishBarter({ bookingId, providerFirstName }: { bookingId: string; providerFirstName: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function finish() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    let message = "Unable to connect. Please try again.";
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "confirm" }) });
+      if (response.ok) {
+        router.push(`/bookings/${bookingId}/review`);
+        return;
+      }
+      const data = await response.json().catch(() => null);
+      message = response.status === 429 ? "Too many changes. Please wait a minute and try again." : data?.error?.message ?? "We could not finish this barter. Please try again.";
+    } catch {}
+    setError(message);
+    setBusy(false);
+  }
+  return (
+    <div className="flex max-w-[300px] shrink-0 flex-col gap-3">
+      <p className="font-mono text-base text-barter-gray lg:text-lg">{providerFirstName} accepted your request. When it&apos;s done, finish the barter to pay them.</p>
+      <button type="button" onClick={finish} disabled={busy} className={cn(contactButton, "disabled:opacity-60")}>
+        {busy ? "Finishing…" : "Finish Barter"}
+      </button>
+      {error && <p role="alert" className="font-mono text-sm font-bold text-red-700">{error}</p>}
+    </div>
   );
 }
 

@@ -54,8 +54,19 @@ export interface CreditTransaction {
   availableDelta: number; heldDelta: number; idempotencyKey: string; createdAt: Date;
 }
 export interface Review { _id: ObjectId; bookingId: ObjectId; authorId: ObjectId; subjectUserId: ObjectId; rating: number; comment: string; createdAt: Date }
+/** An entry in one person's notifications menu, written by the booking and review operations. */
+export interface Notification {
+  _id: ObjectId; userId: ObjectId;
+  /** The person whose action caused it, when there is one. */
+  actorId?: ObjectId;
+  type: "booking_requested" | "booking_accepted" | "booking_declined" | "booking_cancelled" | "booking_awaiting_confirmation" | "booking_completed" | "review_received" | "system";
+  message: string; bookingId?: ObjectId; serviceId?: ObjectId; reviewId?: ObjectId;
+  /** An in-app path to open, such as /profile or /bookings/<id>/review. */
+  href?: string;
+  read: boolean; readAt?: Date; createdAt: Date;
+}
 export function exchangeCollections(db: Db) {
-  return { genres: db.collection<Genre>("genre"), services: db.collection<Service>("service"), bookings: db.collection<Booking>("booking"), accounts: db.collection<CreditAccount>("creditAccount"), transactions: db.collection<CreditTransaction>("creditTransaction"), reviews: db.collection<Review>("review") };
+  return { genres: db.collection<Genre>("genre"), services: db.collection<Service>("service"), bookings: db.collection<Booking>("booking"), accounts: db.collection<CreditAccount>("creditAccount"), transactions: db.collection<CreditTransaction>("creditTransaction"), reviews: db.collection<Review>("review"), notifications: db.collection<Notification>("notification") };
 }
 export async function ensureExchangeIndexes(db: Db) {
   const c = exchangeCollections(db);
@@ -75,6 +86,9 @@ export async function ensureExchangeIndexes(db: Db) {
     c.reviews.createIndex({ bookingId: 1, authorId: 1 }, { unique: true }),
     // Finds requests nobody answered (lib/booking-expiry.ts).
     c.bookings.createIndex({ status: 1, createdAt: 1 }),
+    // A person's newest notifications, and their unread ones.
+    c.notifications.createIndex({ userId: 1, createdAt: -1 }),
+    c.notifications.createIndex({ userId: 1, read: 1 }),
   ]);
 }
 /** Categories offered when creating a listing. Admins can deactivate or rename them later. */

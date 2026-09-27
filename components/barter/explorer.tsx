@@ -18,7 +18,6 @@ import { ListingModal } from "./listing-modal";
 import { TextsBanner } from "./texts-banner";
 import {
   FiltersPanel,
-  NotificationsPanel,
   type ServiceFilters,
 } from "./panels";
 import { ResultsPanel } from "./results";
@@ -147,10 +146,6 @@ export function Explorer({
     };
   }, [panel]);
 
-  const unreadCount = notifications.filter(
-    (notification) => !notification.read,
-  ).length;
-
   const filters = (
     <FiltersPanel
       genres={categories.map(
@@ -167,7 +162,7 @@ export function Explorer({
       <Header
         openPanel={panel}
         onToggle={toggle}
-        unreadCount={unreadCount}
+        notifications={notifications}
         balance={balance}
         query={query}
         filters={filters}
@@ -176,8 +171,7 @@ export function Explorer({
       {!textsEnabled && <TextsBanner />}
 
       <main className="relative flex min-h-0 flex-1 bg-[#e9ecef]">
-        {(panel === "notifications" ||
-          panel === "filters") && (
+        {panel === "filters" && (
           <div
             aria-hidden
             className="fixed inset-0 z-10 hidden lg:block"
@@ -230,18 +224,6 @@ export function Explorer({
             />
           </div>
         </section>
-
-        {/* NOTIFICATIONS */}
-        {panel === "notifications" && (
-          <div
-            id="notifications-panel"
-            className="absolute inset-0 z-20 overflow-y-auto bg-white lg:inset-auto lg:top-0 lg:right-4 lg:max-h-full lg:w-[618px] lg:shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
-          >
-            <NotificationsPanel
-              notifications={notifications}
-            />
-          </div>
-        )}
 
         {/* MOBILE MENU */}
         {panel === "menu" && (

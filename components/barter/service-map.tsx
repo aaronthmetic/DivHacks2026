@@ -383,7 +383,9 @@ function useMapZoom(map: google.maps.Map | null) {
 
       const listener = map.addListener("zoom_changed", onChange);
 
-      return () => listener.remove();
+      // Google Maps can return no listener while its map is being torn down
+      // during route transitions. `remove()` is otherwise the normal cleanup.
+      return () => listener?.remove();
     },
     [map],
   );
@@ -442,9 +444,9 @@ function useZipOutlines(
     ];
 
     return () => {
-      listeners.forEach((listener) => listener.remove());
+      listeners.forEach((listener) => listener?.remove());
 
-      features.forEach((feature) => {
+      features?.forEach((feature) => {
         map.data.remove(feature);
       });
     };

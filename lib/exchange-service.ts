@@ -163,6 +163,16 @@ export function createExchangeService(db: Db, client: MongoClient) {
         return { ...booking, ...changes };
       });
     },
+    /** Cancels a request nobody answered and refunds the requester, like their own cancel, but only while it's still waiting. True when it did. */
+    async expireRequest(bookingId: ObjectId) {
+      return transaction(async (session) => {
+        // Matching the status here, not only in the sweep's earlier read, lets a YES or an overlapping sweep win.
+        const booking = await c.bookings.findOneAndUpdate({ _id: bookingId, status: "requested" }, { $set: { status: "cancelled", updatedAt: new Date() } }, { session });
+        if (!booking) return false;
+        await move(booking.requesterId, booking, "release", booking.totalCredits, -booking.totalCredits, session);
+        return true;
+      });
+    },
     async createReview(authorId: ObjectId, bookingId: ObjectId, rating: number, comment: string) {
       requireValue(Number.isInteger(rating) && rating >= 1 && rating <= 5, "Rating must be from 1 to 5.");
       requireValue(typeof comment === "string" && comment.length <= 2000, "Comment must be at most 2000 characters.");

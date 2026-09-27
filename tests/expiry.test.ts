@@ -4,7 +4,7 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
-import { REQUEST_LIFETIME_MS, expireStaleRequests, handleExpiryCron } from "../lib/booking-expiry";
+import { REQUEST_LIFETIME_MS, authorizeCron, expireStaleRequests, handleExpiryCron } from "../lib/booking-expiry";
 import { expiredTexts } from "../lib/booking-texts";
 import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections } from "../lib/exchange-schema";
 import { createExchangeService } from "../lib/exchange-service";
@@ -104,6 +104,52 @@ test("running twice cancels once and texts once", async () => {
   assert.equal(texts.sent.length, 2);
 });
 
+test("two sweeps running at once cancel once and text each person once", async () => {
+  const uma = await person("Uma"), vic = await person("Vic");
+  const booking = await requestFixture(uma.id, vic.id, "Pottery");
+  const now = new Date();
+  await age(booking._id, 49 * HOUR, now);
+  const texts = messenger();
+
+  const [first, second] = await Promise.all([expireStaleRequests(db, client, texts, now), expireStaleRequests(db, client, texts, now)]);
+
+  assert.equal(first + second, 1);
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: booking._id }))?.status, "cancelled");
+  assert.equal(await exchangeCollections(db).transactions.countDocuments({ bookingId: booking._id, type: "release" }), 1);
+  assert.deepEqual(texts.sent.map((t) => t.phone), [uma.phone, vic.phone]);
+});
+
+test("a YES that lands mid-sweep wins: the booking stays accepted, keeps its coins held, and nobody hears it expired", async () => {
+  const ivy = await person("Ivy"), max = await person("Max"), ren = await person("Ren"), tia = await person("Tia");
+  const older = await requestFixture(ivy.id, max.id, "Baking");
+  const newer = await requestFixture(ren.id, tia.id, "Knitting");
+  const now = new Date();
+  await age(older._id, 51 * HOUR, now);
+  await age(newer._id, 50 * HOUR, now);
+  const held = (await exchangeCollections(db).accounts.findOne({ userId: ren.id }))!.heldCredits;
+  const texts = messenger();
+  // The sweep has already read both requests as waiting; Tia's YES commits while it texts about the older one.
+  const racing = { async send(phone: string, text: string) {
+    if (phone === ivy.phone) await createExchangeService(db, client).transitionBooking(tia.id, newer._id, "accept");
+    await texts.send(phone, text);
+  } };
+
+  const expired = await expireStaleRequests(db, client, racing, now);
+
+  assert.equal(expired, 1);
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: older._id }))?.status, "cancelled");
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: newer._id }))?.status, "accepted");
+  assert.equal((await exchangeCollections(db).accounts.findOne({ userId: ren.id }))!.heldCredits, held);
+  assert.deepEqual(texts.sent.map((t) => t.phone), [ivy.phone, max.phone]);
+});
+
+test("a non-ASCII authorization header of the right length is refused with 401, not a throw", async () => {
+  // "é" is one character but two UTF-8 bytes: "Bearer s3cr3é" has the string length of "Bearer s3cr3t", not its byte length.
+  const response = await handleExpiryCron(new Request("http://localhost/api/cron/expire-requests", { headers: { authorization: "Bearer s3cr3é" } }), db, client, messenger(), "s3cr3t");
+  assert.equal(response.status, 401);
+  assert.equal(await response.text(), "Unauthorized.");
+});
+
 test("a messenger that throws for one phone still sends the other text and handles the next booking", async () => {
   const abe = await person("Abe"), bea = await person("Bea");
   const carl = await person("Carl"), dee = await person("Dee");
@@ -171,6 +217,21 @@ test("handleExpiryCron checks the secret and reports the count", async () => {
   assert.equal(typeof body.expired, "number");
   assert.ok(body.expired >= 1, `expected at least 1 expired, got ${body.expired}`);
   assert.equal((await exchangeCollections(db).bookings.findOne({ _id: stale._id }))?.status, "cancelled");
+});
+
+test("authorizeCron decides without the database: 503 without a secret, 401 when wrong, null when right", async () => {
+  const req = (authorization?: string) => new Request("http://localhost/api/cron/expire-requests", authorization ? { headers: { authorization } } : {});
+  for (const secret of [undefined, ""]) {
+    const denied = authorizeCron(req("Bearer "), secret);
+    assert.equal(denied?.status, 503);
+    assert.equal(await denied?.text(), "Not configured.");
+  }
+  for (const header of [undefined, "Bearer nope", "bearer s3cr3t", "Bearer s3cr3", "Bearer s3cr3é", `Bearer ${"é".repeat(6)}`]) {
+    const denied = authorizeCron(req(header), "s3cr3t");
+    assert.equal(denied?.status, 401, `header ${header}`);
+    assert.equal(await denied?.text(), "Unauthorized.");
+  }
+  assert.equal(authorizeCron(req("Bearer s3cr3t"), "s3cr3t"), null);
 });
 
 test("REQUEST_LIFETIME_MS is 48 hours", () => {

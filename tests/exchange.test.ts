@@ -94,6 +94,34 @@ test("snapshots, authorized transitions, duplicate settlement and participant re
   await assert.rejects(domain.createReview(requester, booking._id, 4, "Duplicate"));
   await domain.createReview(provider, booking._id, 5, "Good exchange");
 });
+test("expiring a waiting request cancels it and refunds the requester", async () => {
+  const { domain, c, requester, service } = await fixture();
+  const booking = await domain.requestBooking(requester, service._id, { preferredWindow: slot });
+  assert.equal(await domain.expireRequest(booking._id), true);
+  assert.equal((await c.bookings.findOne({ _id: booking._id }))?.status, "cancelled");
+  const account = await c.accounts.findOne({ userId: requester });
+  assert.equal(account?.availableCredits, 1000); assert.equal(account?.heldCredits, 0);
+  assert.equal(await c.transactions.countDocuments({ bookingId: booking._id, type: "release" }), 1);
+});
+test("expiring an accepted or cancelled booking changes nothing and refunds nothing", async () => {
+  const { domain, c, requester, provider, service } = await fixture(100);
+  const accepted = await domain.requestBooking(requester, service._id, { preferredWindow: slot });
+  const cancelled = await domain.requestBooking(requester, service._id, { preferredWindow: slot });
+  const expired = await domain.requestBooking(requester, service._id, { preferredWindow: slot });
+  // A YES that commits between the sweep's read and its cancel wins.
+  await domain.transitionBooking(provider, accepted._id, "accept");
+  await domain.transitionBooking(requester, cancelled._id, "cancel");
+  await domain.expireRequest(expired._id);
+  const ids = [accepted._id, cancelled._id, expired._id];
+  const bookings = await c.bookings.find({ _id: { $in: ids } }).sort({ _id: 1 }).toArray(), account = await c.accounts.findOne({ userId: requester });
+  const releases = await c.transactions.countDocuments({ type: "release" });
+  for (const id of [...ids, new ObjectId()]) assert.equal(await domain.expireRequest(id), false);
+  assert.deepEqual(await c.bookings.find({ _id: { $in: ids } }).sort({ _id: 1 }).toArray(), bookings);
+  assert.equal(bookings.find((b) => b._id.equals(accepted._id))?.status, "accepted");
+  assert.deepEqual(await c.accounts.findOne({ userId: requester }), account);
+  assert.equal(account?.heldCredits, 100);
+  assert.equal(await c.transactions.countDocuments({ type: "release" }), releases);
+});
 test("hourly bookings lock duration and total; decline releases credits", async () => {
   const { domain, c, provider, requester, input } = await fixture();
   const service = await domain.createService(provider, { ...input, pricingType: "hourly", creditRate: 125 });

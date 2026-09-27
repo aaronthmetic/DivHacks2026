@@ -140,3 +140,72 @@ export async function createListing(request: Request, auth: Auth, db: Db, client
     return apiError(503, "UNAVAILABLE", "We could not publish your listing. Please try again.");
   }
 }
+
+/** Owner-only replacement of editable fields, or irreversible removal from discovery. */
+export async function modifyListing(request: Request, id: string, auth: Auth, db: Db, origin: string) {
+  const bucket = new GridFSBucket(db, { bucketName: "images" });
+  let uploaded: ObjectId[] = [];
+  try {
+    if (request.headers.get("origin") !== origin) return apiError(403, "INVALID_ORIGIN", "This request is not allowed.");
+    const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
+    if (!session) return apiError(401, "UNAUTHENTICATED", "Sign in to continue.");
+    if (!isProfileComplete(session.user)) return apiError(403, "PROFILE_INCOMPLETE", "Complete your profile to continue.");
+    if (!await consumeProfileLimit(db, session.user.id)) return apiError(429, "RATE_LIMITED", "Too many changes. Please wait a minute and try again.");
+    if (!/^[a-f\d]{24}$/i.test(id)) return apiError(400, "INVALID_INPUT", "Invalid listing ID.");
+    const services = db.collection<Service>("service");
+    const filter = { _id: new ObjectId(id), userId: new ObjectId(session.user.id), status: { $in: ["active", "paused"] as Service["status"][] } };
+    const existing = await services.findOne(filter);
+    if (!existing) return apiError(404, "NOT_FOUND", "This listing is no longer available.");
+    if (request.method === "DELETE") {
+      const result = await services.updateOne(filter, { $set: { status: "archived", updatedAt: new Date() } });
+      if (!result.matchedCount) return apiError(404, "NOT_FOUND", "This listing is no longer available.");
+      return Response.json({ success: true });
+    }
+    const body = await readBody(request);
+    if (!body) return apiError(413, "LISTING_TOO_LARGE", "Your photos are too large. Remove one or choose smaller photos.");
+    let form: FormData;
+    try { form = await new Response(body, { headers: { "content-type": request.headers.get("content-type") || "" } }).formData(); }
+    catch { throw new InputError("Send the listing as a multipart form."); }
+    let retained: unknown;
+    try { retained = JSON.parse(text(form, "retainedImageIds")); }
+    catch { throw new InputError("Choose which existing photos to keep."); }
+    if (!Array.isArray(retained) || retained.some(id => typeof id !== "string" || !(existing.images ?? []).some(image => image.toHexString() === id)) || new Set(retained).size !== retained.length) {
+      throw new InputError("Choose photos belonging to this listing.");
+    }
+    form.delete("retainedImageIds");
+    const { input, images } = parseListingForm(form);
+    if (retained.length + images.length > MAX_LISTING_IMAGES) throw new InputError(`Add at most ${MAX_LISTING_IMAGES} photos.`);
+    validateService(input);
+    if (!await db.collection("genre").findOne({ _id: input.genreId, isActive: true })) throw new InputError("Choose an active category.");
+    const photos = await Promise.all(images.map(async image => {
+      const buffer = Buffer.from(await image.arrayBuffer());
+      validateProfileImage(buffer, image.type);
+      return { buffer, contentType: image.type };
+    }));
+    for (const photo of photos) {
+      const stream = bucket.openUploadStream("listing-photo", { metadata: { contentType: photo.contentType, ownerId: filter.userId, purpose: "service" } });
+      uploaded.push(stream.id);
+      await new Promise<void>((resolve, reject) => { stream.on("finish", resolve); stream.on("error", reject); stream.end(photo.buffer); });
+    }
+    // Do not overwrite status: another request may have paused or archived the listing.
+    const { status: _status, ...fields } = input;
+    void _status;
+    const result = await services.updateOne({ ...filter, updatedAt: existing.updatedAt }, {
+      $set: { ...fields, availability: [...input.availability!].sort((a, b) => a.day - b.day), images: [...retained.map(id => new ObjectId(id)), ...uploaded], updatedAt: new Date() },
+      ...(!input.zipCode ? { $unset: { zipCode: "", countryCode: "" } } : {}),
+    });
+    if (!result.matchedCount) {
+      await Promise.all(uploaded.map(id => bucket.delete(id).catch(() => {})));
+      uploaded = [];
+      return apiError(409, "CONFLICT", "This listing changed. Close the editor and refresh before trying again.");
+    }
+    // Existing images can still be referenced by booking snapshots.
+    uploaded = [];
+    return Response.json({ success: true, id });
+  } catch (error) {
+    await Promise.all(uploaded.map(id => bucket.delete(id).catch(() => {})));
+    if (error instanceof InputError) return apiError(400, "INVALID_INPUT", error.message);
+    logAuthFailure("Listing modification", error);
+    return apiError(503, "UNAVAILABLE", "We could not change your listing. Please try again.");
+  }
+}

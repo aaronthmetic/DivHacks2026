@@ -21,9 +21,11 @@ import { ServiceArt } from "./results";
 export function ListingModal({
   service,
   onClose,
+  onEdit,
 }: {
   service: Service | null;
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   const router = useRouter();
 
@@ -173,84 +175,16 @@ export function ListingModal({
                   " (New York time)"}
               </p>
             </section>
-
-            <div className="flex shrink-0 flex-col gap-3 lg:min-w-[230px]">
-              {service.pricingType === "hourly" &&
-                !service.own && (
-                  <div className="flex flex-col gap-2">
-                    <label
-                      htmlFor="booking-duration"
-                      className="font-mono text-sm font-bold"
-                    >
-                      Duration
-                    </label>
-
-                    <select
-                      id="booking-duration"
-                      value={durationMinutes}
-                      onChange={(event) =>
-                        setDurationMinutes(
-                          Number(event.target.value),
-                        )
-                      }
-                      className="h-12 rounded-[10px] border border-barter-line bg-white px-4 font-mono text-base outline-none focus:border-barter-blue"
-                    >
-                      <option value={30}>
-                        30 minutes
-                      </option>
-
-                      <option value={60}>
-                        1 hour
-                      </option>
-
-                      <option value={90}>
-                        1 hour 30 minutes
-                      </option>
-
-                      <option value={120}>
-                        2 hours
-                      </option>
-
-                      <option value={180}>
-                        3 hours
-                      </option>
-
-                      <option value={240}>
-                        4 hours
-                      </option>
-                    </select>
-                  </div>
-                )}
-
-              {service.own ? (
-                <Link
-                  href="/profile"
-                  aria-label="View your profile"
-                  className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
-                >
-                  Your profile
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={createBooking}
-                  disabled={creatingBooking}
-                  aria-label={`Contact ${service.providerName}`}
-                  className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
-                >
-                  {creatingBooking
-                    ? "Creating..."
-                    : "Contact"}
-                </button>
-              )}
-
-              {bookingError && (
-                <p className="max-w-[280px] font-mono text-sm text-red-600">
-                  {bookingError}
-                </p>
-              )}
-            </div>
+            {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
+            {!service.own && <Link
+              href={`/profile/${service.providerId}`}
+              aria-label={`Contact ${service.providerName}`}
+              className="flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
+            >
+              Contact
+            </Link>}
           </div>
+          {service.own && onEdit && <button type="button" onClick={onEdit} className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90">Edit</button>}
         </div>
       )}
     </Modal>

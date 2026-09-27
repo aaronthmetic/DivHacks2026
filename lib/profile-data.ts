@@ -1,16 +1,19 @@
 import { ObjectId, type Db } from "mongodb";
 import { exchangeCollections } from "./exchange-schema";
 import { frequencyLabel, priceLabel } from "./listing-data";
+import { editableListing, type EditableListing } from "./listing-edit";
+import type { CategoryOption } from "./barter/data";
 import type { Service } from "./barter/data";
 
 import { DEFAULT_AVATAR } from "./profile-display";
 export interface ProfileCard {
-  id: string; title: string; description: string; image?: string;
+  id: string; title: string; description: string; image?: string; editable?: EditableListing;
   category?: string; images?: string[]; rating?: number; ratingCount?: number; location?: string; zip?: string | null; tags?: string[]; availability?: Service["availability"]; providerId?: string; providerName?: string; own?: boolean;
   lines: string[]; provider?: { id: string; name: string };
 }
 export interface ProfileData {
   id: string; name: string; image: string; rating: number; reviewCount: number; isOwner: boolean;
+  categories?: CategoryOption[];
   listings: ProfileCard[]; bookings: ProfileCard[];
   reviews: { id: string; authorId: string; authorName: string; authorImage: string; rating: number; comment: string; date: string }[];
   reviewsPage: number; reviewPages: number;
@@ -54,13 +57,14 @@ export async function getProfileData(db: Db, profileId: string, viewerId: string
     rating: Number.isFinite(user.rating) ? Math.max(0, Math.min(5, user.rating)) : 0,
     reviewCount: Number.isFinite(user.numberOfReviews) ? Math.max(0, user.numberOfReviews) : 0,
     isOwner, reviewsPage, reviewPages,
+    ...(isOwner ? { categories: genres.map(g => ({ id: g._id.toHexString(), name: g.name })) } : {}),
     listings: services.flatMap(s => {
       const category = s.genreId ? genreNames.get(s.genreId.toHexString()) ?? "Other" : "Other";
       if (!category) return [];
       const listingOwner = person.get(s.userId.toHexString());
       const zip = s.zipCode ?? null;
       const location = zip ? neighborhoods.get(zip) ?? `ZIP ${zip}` : "Remote";
-      return [{ id: s._id.toHexString(), title: s.title, description: s.description,
+      return [{ ...(isOwner ? { editable: editableListing(s) } : {}), id: s._id.toHexString(), title: s.title, description: s.description,
         image: s.images?.[0] ? `/api/images/${s.images[0].toHexString()}` : undefined,
         category, images: (s.images ?? []).map(image => `/api/images/${image.toHexString()}`),
         rating: Number.isFinite(listingOwner?.rating) ? Math.max(0, Math.min(5, listingOwner!.rating)) : 0,

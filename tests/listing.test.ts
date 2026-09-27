@@ -40,7 +40,9 @@ function listingForm(fields: Record<string, string>, images: Buffer[] = []) {
 function post(cookie: string, body: FormData | Blob, requestOrigin = origin) {
   return createListing(new Request(`${origin}/api/services`, { method: "POST", headers: { cookie, origin: requestOrigin }, body }), auth, db, client, origin);
 }
-const baseFields = (genre: string): Record<string, string> => ({ title: "Algebra help", genreId: genre, description: "Homework and test prep.", deliveryMode: "in_person", zipCode: "10027", coins: "5", per: "hour", frequency: "recurring", interval: "2", unit: "week" });
+const baseFields = (genre: string): Record<string, string> => ({ title: "Algebra help", genreId: genre, description: "Homework and test prep.", deliveryMode: "in_person", zipCode: "10027", coins: "5", per: "hour", frequency: "recurring", interval: "2", unit: "week", availability: JSON.stringify([{ day: 6, start: "10:00", end: "14:00" }, { day: 1, start: "17:00", end: "20:00" }]) });
+// baseFields' availability in minutes, sorted by day the way it's stored.
+const storedAvailability = [{ day: 1, start: 1020, end: 1200 }, { day: 6, start: 600, end: 840 }];
 
 test("default categories are inserted once and existing ones are left alone", async () => {
   const { genres } = exchangeCollections(db);
@@ -57,12 +59,22 @@ test("the listing form maps onto the service schema", async () => {
   assert.deepEqual({ ...input, genreId: input.genreId.toHexString() }, {
     genreId: genre, title: "Algebra help", description: "Homework and test prep.", deliveryMode: "in_person",
     zipCode: "10027", countryCode: "US", pricingType: "hourly", creditRate: 500,
-    frequency: { type: "recurring", interval: 2, unit: "week" }, status: "active",
+    frequency: { type: "recurring", interval: 2, unit: "week" },
+    availability: [{ day: 6, start: 600, end: 840 }, { day: 1, start: 1020, end: 1200 }], status: "active",
   });
   const remote = parseListingForm(listingForm({ ...baseFields(genre), deliveryMode: "remote", zipCode: "", per: "service", frequency: "single", interval: "", unit: "" })).input;
   assert.equal(remote.zipCode, undefined); assert.equal(remote.countryCode, undefined);
   assert.equal(remote.pricingType, "fixed"); assert.deepEqual(remote.frequency, { type: "single" });
-  const invalid: Record<string, string>[] = [{ zipCode: "" }, { zipCode: "1002" }, { coins: "0" }, { coins: "1.5" }, { per: "day" }, { frequency: "weekly" }, { interval: "0" }, { interval: "100" }, { unit: "year" }, { genreId: "nope" }, { title: " " }];
+  const days = (...slots: object[]) => JSON.stringify(slots);
+  const invalid: Record<string, string>[] = [{ zipCode: "" }, { zipCode: "1002" }, { coins: "0" }, { coins: "1.5" }, { per: "day" }, { frequency: "weekly" }, { interval: "0" }, { interval: "100" }, { unit: "year" }, { genreId: "nope" }, { title: " " },
+    { availability: "" }, { availability: "[]" }, { availability: "Mondays" }, { availability: "{}" },
+    { availability: days({ day: 1, start: "20:00", end: "17:00" }) }, { availability: days({ day: 1, start: "17:00", end: "17:00" }) },
+    { availability: days({ day: 1, start: "5pm", end: "20:00" }) }, { availability: days({ day: 7, start: "17:00", end: "20:00" }) },
+    { availability: days({ day: 1, start: "17:00", end: "20:00" }, { day: 1, start: "08:00", end: "09:00" }) },
+    { availability: days({ day: 1, start: "17:00", end: "20:00", note: "x" }) },
+    // Valid JSON, but longer than the 1,000-character limit.
+    { availability: days({ day: 1, start: "17:00", end: "20:00" }).replace("[", `[${" ".repeat(1000)}`) },
+  ];
   for (const bad of invalid) {
     assert.throws(() => parseListingForm(listingForm({ ...baseFields(genre), ...bad })), /./, JSON.stringify(bad));
   }
@@ -89,6 +101,18 @@ test("frequency is validated, stored without extra keys, and snapshotted", async
   assert.equal(priceLabel({ creditRate: 250, pricingType: "hourly" }), "2.5 coins / hour");
 });
 
+test("availability is required, stored sorted without extra keys, and snapshotted", async () => {
+  const user = await lister(5);
+  const domain = createExchangeService(db, client);
+  const input = { ...parseListingForm(listingForm(baseFields(await genreId()))).input };
+  for (const availability of [undefined, [], [{ day: 1, start: 600, end: 600 }], [{ day: 7, start: 0, end: 60 }], [{ day: 1, start: 0, end: 60 }, { day: 1, start: 90, end: 120 }]]) {
+    await assert.rejects(domain.createService(user.id, { ...input, availability } as never), JSON.stringify(availability));
+  }
+  const service = await domain.createService(user.id, { ...input, availability: [{ day: 6, start: 600, end: 840, note: "x" }, { day: 1, start: 1020, end: 1200 }] as never });
+  assert.deepEqual((await exchangeCollections(db).services.findOne({ _id: service._id }))?.availability, storedAvailability);
+  assert.deepEqual(snapshotService(service).availability, storedAvailability);
+});
+
 test("publishing requires a session and the app origin, stores photos, and cleans up failures", async () => {
   const user = await lister(2);
   const genre = await genreId();
@@ -102,6 +126,7 @@ test("publishing requires a session and the app origin, stores photos, and clean
   assert.ok(service?.userId.equals(user.id));
   assert.equal(service?.creditRate, 500); assert.equal(service?.pricingType, "hourly"); assert.equal(service?.status, "active");
   assert.deepEqual(service?.frequency, { type: "recurring", interval: 2, unit: "week" });
+  assert.deepEqual(service?.availability, storedAvailability);
   assert.equal(service?.images?.length, 2);
   const stored = await files.find({ _id: { $in: service!.images! } }).toArray();
   assert.ok(stored.every((file) => file.metadata.purpose === "service" && file.metadata.ownerId.equals(user.id) && file.metadata.contentType === "image/png"));
@@ -110,6 +135,7 @@ test("publishing requires a session and the app origin, stores photos, and clean
   assert.equal(rejected.status, 400);
   assert.equal(await files.countDocuments(), before + 2);
   assert.equal((await post(user.cookie, listingForm(baseFields(genre), [Buffer.from("not an image")]))).status, 400);
+  assert.equal((await post(user.cookie, listingForm({ ...baseFields(genre), availability: "" }))).status, 400);
   assert.equal(await files.countDocuments(), before + 2);
   const oversized = new Blob([new Uint8Array(MAX_LISTING_BODY_BYTES + 1)], { type: "multipart/form-data; boundary=x" });
   assert.equal((await post(user.cookie, oversized)).status, 413);

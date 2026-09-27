@@ -20,7 +20,7 @@ async function fixture(rate = 600) {
   await db.collection("user").insertMany([provider, requester].map((_id) => ({ _id, firstName: "Test", lastName: "User", phoneNumber: "+12025550123", profileCompletedAt: new Date() })));
   await c.genres.insertOne({ _id: genreId, name: "Tutoring", slug: genreId.toHexString(), description: "Lessons", isActive: true });
   await Promise.all([domain.grantWelcome(provider), domain.grantWelcome(requester)]);
-  const input = { genreId, title: "Lesson", description: "One lesson", pricingType: "fixed" as const, creditRate: rate, deliveryMode: "in_person" as const, zipCode: "00123", countryCode: "US", status: "active" as const };
+  const input = { genreId, title: "Lesson", description: "One lesson", pricingType: "fixed" as const, creditRate: rate, deliveryMode: "in_person" as const, zipCode: "00123", countryCode: "US", status: "active" as const, availability: [{ day: 1, start: 540, end: 1020 }] };
   const service = await domain.createService(provider, input);
   return { domain, c, provider, requester, service, input };
 }
@@ -174,7 +174,7 @@ test("listings retain validated image IDs and bookings preserve full snapshots",
   await assert.rejects(domain.createService(provider, { ...input, images: ["invalid" as unknown as ObjectId] }), /GridFS ObjectIds/);
   const scheduledAt = new Date("2030-01-02T14:00:00Z");
   const booking = await domain.requestBooking(requester, service._id, { scheduledAt });
-  assert.deepEqual(booking.serviceSnapshot, { title: service.title, description: service.description, pricingType: "fixed", creditRate: 100, genreId: service.genreId, deliveryMode: "in_person", zipCode: "00123", countryCode: "US", images });
+  assert.deepEqual(booking.serviceSnapshot, { title: service.title, description: service.description, pricingType: "fixed", creditRate: 100, genreId: service.genreId, deliveryMode: "in_person", zipCode: "00123", countryCode: "US", availability: [{ day: 1, start: 540, end: 1020 }], images });
   await c.services.updateOne({ _id: service._id }, { $set: { images: [], deliveryMode: "remote", zipCode: "99999", creditRate: 500, description: "Changed" } });
   assert.deepEqual((await c.bookings.findOne({ _id: booking._id }))?.serviceSnapshot, booking.serviceSnapshot);
   assert.equal(booking.scheduledAt?.toISOString(), scheduledAt.toISOString());

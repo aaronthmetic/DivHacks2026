@@ -27,10 +27,12 @@ export interface Service {
   images?: Images;
   /** Services created before frequencies existed have none and are single-time. */
   frequency?: ServiceFrequency;
+  /** Weekly windows (lib/availability.ts). Required for new listings; older ones have none. */
+  availability?: AvailabilityWindow[];
 }
 /** Added details are optional for bookings created before full snapshots. */
 export type ServiceSnapshot = Pick<Service, "title" | "description" | "pricingType" | "creditRate">
-  & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images" | "frequency">>;
+  & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images" | "frequency" | "availability">>;
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;
   serviceSnapshot: ServiceSnapshot;

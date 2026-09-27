@@ -10,6 +10,7 @@ export function snapshotService(service: Service): ServiceSnapshot {
     ...(service.zipCode !== undefined ? { zipCode: service.zipCode } : {}),
     ...(service.countryCode !== undefined ? { countryCode: service.countryCode } : {}),
     ...(service.frequency !== undefined ? { frequency: { ...service.frequency } } : {}),
+    ...(service.availability !== undefined ? { availability: service.availability.map((entry) => ({ ...entry })) } : {}),
     images: [...(service.images ?? [])],
   };
 }

@@ -2,7 +2,8 @@
 import { ObjectId, type ClientSession, type Db, type MongoClient } from "mongodb";
 import { snapshotService, validateScheduledAt } from "./booking-snapshot";
 import { InputError, isProfileComplete } from "./auth-validation";
-import { exchangeCollections, type Booking, type Service, type ServiceFrequency } from "./exchange-schema";
+import { isValidAvailability } from "./availability";
+import { exchangeCollections, type AvailabilityWindow, type Booking, type Service, type ServiceFrequency } from "./exchange-schema";
 
 function requireValue(condition: unknown, message: string): asserts condition {
   if (!condition) throw new InputError(message);
@@ -28,6 +29,7 @@ export function validateService(input: Omit<Service, "_id" | "userId" | "created
   calculateCredits(input.pricingType, input.creditRate, 60);
   requireValue(input.images === undefined || (Array.isArray(input.images) && input.images.every(id => id instanceof ObjectId)), "Images must be an array of GridFS ObjectIds.");
   requireValue(input.frequency === undefined || validFrequency(input.frequency), "Choose single time, or recurring every 1 to 99 days, weeks, or months.");
+  requireValue(isValidAvailability(input.availability), "Choose the days and hours you're available, one time range per day.");
   if (input.deliveryMode !== "remote" || input.zipCode !== undefined || input.countryCode !== undefined) {
     requireValue(typeof input.zipCode === "string" && input.zipCode.trim().length > 0 && input.zipCode.length <= 20, "A postal code is required.");
     requireValue(typeof input.countryCode === "string" && /^[A-Z]{2}$/.test(input.countryCode), "Use a two-letter uppercase country code.");
@@ -41,6 +43,10 @@ function validFrequency(frequency: ServiceFrequency) {
 /** Copies only the known fields so stray client keys are never stored. */
 function storedFrequency(frequency: ServiceFrequency): ServiceFrequency {
   return frequency.type === "single" ? { type: "single" } : { type: "recurring", interval: frequency.interval, unit: frequency.unit };
+}
+/** Copies only the known fields, sorted by day. */
+function storedAvailability(availability: AvailabilityWindow[]): AvailabilityWindow[] {
+  return availability.map(({ day, start, end }) => ({ day, start, end })).sort((a, b) => a.day - b.day);
 }
 export function createExchangeService(db: Db, client: MongoClient) {
   const c = exchangeCollections(db);
@@ -91,7 +97,7 @@ export function createExchangeService(db: Db, client: MongoClient) {
         await completeUser(userId, session);
         requireValue(await c.genres.findOne({ _id: input.genreId, isActive: true }, { session }), "An active genre is required.");
         const now = new Date();
-        const service: Service = { _id: new ObjectId(), userId, genreId: input.genreId, title: input.title.trim(), description: input.description.trim(), deliveryMode: input.deliveryMode, pricingType: input.pricingType, creditRate: input.creditRate, status: input.status, images: [...(input.images ?? [])], ...(input.zipCode !== undefined ? { zipCode: input.zipCode.trim(), countryCode: input.countryCode } : {}), ...(input.frequency ? { frequency: storedFrequency(input.frequency) } : {}), createdAt: now, updatedAt: now };
+        const service: Service = { _id: new ObjectId(), userId, genreId: input.genreId, title: input.title.trim(), description: input.description.trim(), deliveryMode: input.deliveryMode, pricingType: input.pricingType, creditRate: input.creditRate, status: input.status, images: [...(input.images ?? [])], ...(input.zipCode !== undefined ? { zipCode: input.zipCode.trim(), countryCode: input.countryCode } : {}), ...(input.frequency ? { frequency: storedFrequency(input.frequency) } : {}), availability: storedAvailability(input.availability!), createdAt: now, updatedAt: now };
         await c.services.insertOne(service, { session });
         return service;
       });

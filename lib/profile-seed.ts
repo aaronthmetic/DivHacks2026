@@ -58,6 +58,7 @@ export async function seedProfile(db: Db, client: MongoClient, email = "john.doe
           description: `${title}. A sample service for testing profile cards and booking details.`,
           deliveryMode: inPerson ? "in_person" : "remote", ...(inPerson ? { zipCode: "10027", countryCode: "US" } : {}),
           pricingType: inPerson ? "hourly" : "fixed", creditRate: 100,
+          availability: [{ day: 1, start: 1020, end: 1200 }, { day: 6, start: 600, end: 840 }],
           images: [], status: paused ? "paused" : "active", createdAt: new Date(now.getTime() + index), updatedAt: now,
         };
         validateService(result);

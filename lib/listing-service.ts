@@ -3,14 +3,15 @@ import type { Auth } from "./auth-config";
 import { InputError, isProfileComplete } from "./auth-validation";
 import { logAuthFailure } from "./auth-errors";
 import { createExchangeService, validateService } from "./exchange-service";
-import type { Service, ServiceFrequency } from "./exchange-schema";
+import { isValidAvailability, toMinutes } from "./availability";
+import type { AvailabilityWindow, Service, ServiceFrequency } from "./exchange-schema";
 import { apiError, consumeProfileLimit } from "./profile-service";
 import { validateProfileImage } from "./profile-image";
 
 export const MAX_LISTING_IMAGES = 5;
 /** Stays under the 4.5 MB request limit of Vercel functions; the form shrinks photos first. */
 export const MAX_LISTING_BODY_BYTES = 4 * 1024 * 1024;
-const FIELDS = ["title", "genreId", "description", "deliveryMode", "zipCode", "coins", "per", "frequency", "interval", "unit", "images"];
+const FIELDS = ["title", "genreId", "description", "deliveryMode", "zipCode", "coins", "per", "frequency", "interval", "unit", "availability", "images"];
 
 type ListingInput = Omit<Service, "_id" | "userId" | "createdAt" | "updatedAt">;
 
@@ -26,6 +27,29 @@ function parseFrequency(type: string, interval: string, unit: string): ServiceFr
   if (!/^\d{1,2}$/.test(interval) || Number(interval) < 1) throw new InputError("Enter how often it repeats, from 1 to 99.");
   if (unit !== "day" && unit !== "week" && unit !== "month") throw new InputError("Choose days, weeks, or months.");
   return { type: "recurring", interval: Number(interval), unit };
+}
+
+const AVAILABILITY_ERROR = "Choose the days and hours you're available.";
+
+/** The form sends [{ day, start: "HH:MM", end: "HH:MM" }] as JSON; times are stored as minutes. */
+function parseAvailability(value: string): AvailabilityWindow[] {
+  if (!value) throw new InputError("Choose at least one day you're available.");
+  let entries: unknown;
+  try { entries = value.length <= 1000 ? JSON.parse(value) : null; } catch { entries = null; }
+  if (!Array.isArray(entries)) throw new InputError(AVAILABILITY_ERROR);
+  if (entries.length === 0) throw new InputError("Choose at least one day you're available.");
+  const windows = entries.map((entry) => {
+    if (typeof entry !== "object" || entry === null || Object.keys(entry).sort().join() !== "day,end,start") throw new InputError(AVAILABILITY_ERROR);
+    const { day, start, end } = entry as Record<string, unknown>;
+    const from = typeof start === "string" ? toMinutes(start) : null;
+    const until = typeof end === "string" ? toMinutes(end) : null;
+    if (from === null || until === null) throw new InputError("Enter a start and end time for each day.");
+    if (until <= from) throw new InputError("Each day's end time must be after its start time.");
+    return { day: day as number, start: from, end: until };
+  });
+  // Also rejects days outside Sunday to Saturday and repeated days.
+  if (!isValidAvailability(windows)) throw new InputError(AVAILABILITY_ERROR);
+  return windows;
 }
 
 /** Maps the listing form onto the service schema. Throws InputError with a message for the user. */
@@ -47,6 +71,7 @@ export function parseListingForm(form: FormData): { input: ListingInput; images:
   const per = text(form, "per");
   if (per !== "hour" && per !== "service") throw new InputError("Choose whether the price is per hour or per service.");
   const frequency = parseFrequency(text(form, "frequency"), text(form, "interval"), text(form, "unit"));
+  const availability = parseAvailability(text(form, "availability"));
   const images = form.getAll("images");
   if (images.length > MAX_LISTING_IMAGES) throw new InputError(`Add at most ${MAX_LISTING_IMAGES} photos.`);
   if (images.some((image) => !(image instanceof File))) throw new InputError("Photos must be uploaded as files.");
@@ -55,7 +80,7 @@ export function parseListingForm(form: FormData): { input: ListingInput; images:
       genreId: new ObjectId(genreId), title, description, deliveryMode,
       ...(zipCode ? { zipCode, countryCode: "US" } : {}),
       pricingType: per === "hour" ? "hourly" : "fixed", creditRate: Number(coins) * 100,
-      frequency, status: "active",
+      frequency, availability, status: "active",
     },
     images: images as File[],
   };

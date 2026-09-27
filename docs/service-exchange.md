@@ -6,7 +6,7 @@
 | --- | --- |
 | `user` | Existing authentication fields plus optional `bio`, `zipCode`, `countryCode`; server-managed `rating`, `numberOfReviews`, and `reviews`. |
 | `genre` | Name, unique slug, description, active flag. Categories are managed server-side. |
-| `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, frequency, status, timestamps. |
+| `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, frequency, weekly availability, status, timestamps. |
 | `booking` | Service and participants, immutable category, description, delivery/location, image-ID and pricing snapshot, agreed duration/total, optional schedule, status and completion timestamps. |
 | `creditAccount` | One account per user; available and held balances. |
 | `creditTransaction` | Append-only balance deltas, account/booking references, operation type, unique idempotency key, creation time. |
@@ -19,6 +19,8 @@ Every credit field, including rates and ledger deltas, uses integer hundredths: 
 Delivery modes are `remote`, `in_person`, and `either`. The latter two require a string postal code and uppercase two-letter country code. Postal codes preserve leading zeros. Service states are `active`, `paused`, and `archived`.
 
 A listing's `frequency` is either `{ type: "single" }` or `{ type: "recurring", interval, unit }`, where `interval` is a whole number from 1 to 99 and `unit` is `day`, `week`, or `month` (so "every 2 weeks" is `{ type: "recurring", interval: 2, unit: "week" }`). Only those keys are stored, and booking snapshots copy it. Listings created before the field existed have none and are treated as single-time; no migration is needed.
+
+A listing's `availability` is a list of 1–7 weekly windows `{ day, start, end }`. `day` is 0 (Sunday) to 6 (Saturday), and `start` and `end` are minutes after midnight in New York time, with `start < end` on the same day and at most one window per day. New listings require it. It's stored sorted by day with only those keys, and booking snapshots copy it. Listings created before the field existed have none and show as "Availability not listed"; no migration is needed. `lib/availability.ts` validates and formats it.
 
 ## Server interfaces
 
@@ -34,7 +36,7 @@ Actor IDs must come from authenticated server sessions, never a client-supplied 
 
 ## Listing endpoint and map page
 
-`POST /api/services` publishes a listing for the signed-in user through `createService`. It takes a multipart form: `title`, `genreId`, `description`, `deliveryMode`, `zipCode` (5 digits; optional only for `remote`, and stored with country `US`), `coins` (a whole number, stored as `creditRate = coins × 100`), `per` (`hour` → `hourly`, `service` → `fixed`), `frequency` (`single` or `recurring`, with `interval` and `unit` when recurring), and up to five `images` (JPEG, PNG, or WebP). Like the profile endpoints it requires the configured `Origin`, a complete account, and the shared 20-per-minute mutation limit; it rejects unknown or repeated fields. The whole request is capped at 4 MiB, below Vercel's 4.5 MB function limit, and the form shrinks larger photos in the browser first. Photos are validated by signature and stored in GridFS with `{ ownerId, purpose: "service" }` metadata before the listing is created; if creation fails they are deleted. It returns `201 { success: true, id }` or `{ error: { code, message } }` with 400, 401, 403, 413, 429, or 503.
+`POST /api/services` publishes a listing for the signed-in user through `createService`. It takes a multipart form: `title`, `genreId`, `description`, `deliveryMode`, `zipCode` (5 digits; optional only for `remote`, and stored with country `US`), `coins` (a whole number, stored as `creditRate = coins × 100`), `per` (`hour` → `hourly`, `service` → `fixed`), `frequency` (`single` or `recurring`, with `interval` and `unit` when recurring), `availability` (a JSON array of `{ day, start, end }` with `HH:MM` 24-hour times, at most 1,000 characters), and up to five `images` (JPEG, PNG, or WebP). Like the profile endpoints it requires the configured `Origin`, a complete account, and the shared 20-per-minute mutation limit; it rejects unknown or repeated fields. The whole request is capped at 4 MiB, below Vercel's 4.5 MB function limit, and the form shrinks larger photos in the browser first. Photos are validated by signature and stored in GridFS with `{ ownerId, purpose: "service" }` metadata before the listing is created; if creation fails they are deleted. It returns `201 { success: true, id }` or `{ error: { code, message } }` with 400, 401, 403, 413, 429, or 503.
 
 The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens the provider's profile until messaging exists. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
 
@@ -50,7 +52,7 @@ Every new session (registration or sign-in) grants missing welcome credits to co
 
 **Before exposing booking or review endpoints:** welcome credits currently go to accounts whose email and phone are unverified, so scripted sign-ups could farm credits and reviews. Add verification or another abuse control first. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
-Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
+Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Messaging, distance search, cash conversion, platform fees, and moderation remain future additions.
 
 ## Verification
 

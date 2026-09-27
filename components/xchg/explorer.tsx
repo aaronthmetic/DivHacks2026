@@ -106,7 +106,7 @@ export function Explorer({
           aria-label="Results"
           className="hidden min-w-0 flex-1 overflow-y-auto lg:block"
         >
-          <ResultsPanel services={services} query={query} />
+          <ResultsPanel services={services} query={query}/>
         </section>
 
         {/* Mobile results */}

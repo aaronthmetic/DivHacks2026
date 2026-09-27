@@ -1,8 +1,6 @@
 "use client";
 
-import type {
-  ReactNode,
-} from "react";
+import type { ReactNode } from "react";
 
 import {
   useCallback,
@@ -21,25 +19,27 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 
-import type {
-  Service,
-  ZipArea,
-} from "@/lib/xchg/data";
+import type { Service, ZipArea } from "@/lib/xchg/data";
 
 import boundaries from "@/lib/xchg/zip-boundaries.json";
 
-import {
-  cn,
-} from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
-const DEMO_MAP_ID =
-  "DEMO_MAP_ID";
+const DEMO_MAP_ID = "DEMO_MAP_ID";
 
-const HIGHLIGHT =
-  "#2ca3ff";
+const HIGHLIGHT = "#2ca3ff";
 
-const MAX_CARDS =
-  3;
+const MAX_CARDS = 3;
+
+const NYC_MAP_BOUNDS = {
+  north: 40.93,
+  south: 40.49,
+  east: -73.68,
+  west: -74.27,
+};
+
+const MIN_ZOOM = 10;
+const MAX_ZOOM = 18;
 
 const STACK = {
   desktop: {
@@ -58,8 +58,7 @@ type Group = {
 
   zips: ZipArea[];
 
-  position:
-    google.maps.LatLngLiteral;
+  position: google.maps.LatLngLiteral;
 };
 
 /*
@@ -68,40 +67,22 @@ type Group = {
 |--------------------------------------------------------------------------
 */
 
-function normalizeZip(
-  value: unknown,
-) {
-  if (
-    value === undefined ||
-    value === null
-  ) {
+function normalizeZip(value: unknown) {
+  if (value === undefined || value === null) {
     return "";
   }
 
-  const zip =
-    String(
-      value,
-    ).trim();
+  const zip = String(value).trim();
 
-  if (
-    /^\d+$/.test(
-      zip,
-    )
-  ) {
-    return zip.padStart(
-      5,
-      "0",
-    );
+  if (/^\d+$/.test(zip)) {
+    return zip.padStart(5, "0");
   }
 
   return zip;
 }
 
-function getServiceImageUrl(
-  service: Service,
-): string | null {
-  const imageId =
-    service.images?.[0];
+function getServiceImageUrl(service: Service): string | null {
+  const imageId = service.images?.[0];
 
   if (!imageId) {
     return null;
@@ -123,53 +104,31 @@ export default function ServiceMap({
   services,
   initialZip,
 }: {
-  apiKey:
-    | string
-    | undefined;
+  apiKey: string | undefined;
 
-  mapId:
-    | string
-    | undefined;
+  mapId: string | undefined;
 
-  areas:
-    ZipArea[];
+  areas: ZipArea[];
 
-  services:
-    Service[];
+  services: Service[];
 
-  initialZip:
-    string | null;
+  initialZip: string | null;
 }) {
   if (!apiKey) {
     return (
       <MapNotice>
-        Add GOOGLE_MAPS_API_KEY
-        to .env.local to show
-        the map.
+        Add GOOGLE_MAPS_API_KEY to .env.local to show the map.
       </MapNotice>
     );
   }
 
   return (
-    <APIProvider
-      apiKey={
-        apiKey
-      }
-    >
+    <APIProvider apiKey={apiKey}>
       <ZipMap
-        mapId={
-          mapId ||
-          DEMO_MAP_ID
-        }
-        areas={
-          areas
-        }
-        services={
-          services
-        }
-        initialZip={
-          initialZip
-        }
+        mapId={mapId || DEMO_MAP_ID}
+        areas={areas}
+        services={services}
+        initialZip={initialZip}
       />
     </APIProvider>
   );
@@ -187,20 +146,15 @@ function ZipMap({
   services,
   initialZip,
 }: {
-  mapId:
-    string;
+  mapId: string;
 
-  areas:
-    ZipArea[];
+  areas: ZipArea[];
 
-  services:
-    Service[];
+  services: Service[];
 
-  initialZip:
-    string | null;
+  initialZip: string | null;
 }) {
-  const status =
-    useApiLoadingStatus();
+  const status = useApiLoadingStatus();
 
   /*
    * Do not access window during the initial render.
@@ -208,96 +162,55 @@ function ZipMap({
    * This keeps the component safe even if it is ever
    * rendered outside dynamic(..., { ssr: false }).
    */
-  const [
-    phone,
-    setPhone,
-  ] =
-    useState(
-      false,
-    );
+  const [phone, setPhone] = useState(false);
 
   useEffect(() => {
-    const media =
-      window.matchMedia(
-        "(min-width: 1024px)",
-      );
+    const media = window.matchMedia("(min-width: 1024px)");
 
-    const update =
-      () => {
-        setPhone(
-          !media.matches,
-        );
-      };
+    const update = () => {
+      setPhone(!media.matches);
+    };
 
     update();
 
-    media.addEventListener(
-      "change",
-      update,
-    );
+    media.addEventListener("change", update);
 
     return () => {
-      media.removeEventListener(
-        "change",
-        update,
-      );
+      media.removeEventListener("change", update);
     };
   }, []);
 
   if (
-    status ===
-      APILoadingStatus.FAILED ||
-    status ===
-      APILoadingStatus.AUTH_FAILURE
+    status === APILoadingStatus.FAILED ||
+    status === APILoadingStatus.AUTH_FAILURE
   ) {
     return (
       <MapNotice>
-        Google Maps
-        didn&apos;t load.
-        Check your API key
-        and Maps JavaScript
-        API configuration.
+        Google Maps didn't load. Check your API key and Maps JavaScript API
+        configuration.
       </MapNotice>
     );
   }
 
   return (
     <GoogleMap
-      mapId={
-        mapId
-      }
-      defaultBounds={initialBounds(
-        areas,
-        initialZip,
-        phone,
-      )}
+      mapId={mapId}
+      defaultBounds={initialBounds(areas, initialZip, phone)}
       isFractionalZoomEnabled
       disableDefaultUI
-      clickableIcons={
-        false
-      }
+      clickableIcons={false}
       gestureHandling="greedy"
       style={{
-        width:
-          "100%",
+        width: "100%",
 
-        height:
-          "100%",
+        height: "100%",
       }}
     >
       <ZipLayer
-        areas={
-          areas
-        }
-        services={
-          services
-        }
-        initialZip={
-          initialZip
-        }
-        phone={
-          phone
-        }
+        areas={areas}
+        services={services}
+        initialZip={initialZip}
+        phone={phone}
       />
     </GoogleMap>
   );
@@ -315,111 +228,62 @@ function ZipLayer({
   initialZip,
   phone,
 }: {
-  areas:
-    ZipArea[];
+  areas: ZipArea[];
 
-  services:
-    Service[];
+  services: Service[];
 
-  initialZip:
-    string | null;
+  initialZip: string | null;
 
-  phone:
-    boolean;
+  phone: boolean;
 }) {
-  const map =
-    useMap();
+  const map = useMap();
 
-  const zoom =
-    useMapZoom(
-      map,
+  const zoom = useMapZoom(map);
+
+  const [selectedZip, setSelectedZip] = useState<string | null>(initialZip);
+
+  const [hoveredZips, setHoveredZips] = useState<string[]>([]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent<string | null>("xchg:selectedZip", {
+        detail: selectedZip,
+      }),
     );
+  }, [selectedZip]);
 
-  const [
+  const toggleZip = useCallback((zip: string) => {
+    const normalized = normalizeZip(zip);
+
+    setSelectedZip((current) => (current === normalized ? null : normalized));
+  }, []);
+
+  useZipOutlines(map, {
     selectedZip,
-    setSelectedZip,
-  ] =
-    useState<
-      string | null
-    >(
-      initialZip,
-    );
 
-  const [
     hoveredZips,
-    setHoveredZips,
-  ] =
-    useState<
-      string[]
-    >([]);
 
-  const toggleZip =
-    useCallback(
-      (
-        zip: string,
-      ) => {
-        const normalized =
-          normalizeZip(
-            zip,
-          );
+    onHover: setHoveredZips,
 
-        setSelectedZip(
-          (
-            current,
-          ) =>
-            current ===
-            normalized
-              ? null
-              : normalized,
-        );
-      },
-      [],
-    );
-
-  useZipOutlines(
-    map,
-    {
-      selectedZip,
-
-      hoveredZips,
-
-      onHover:
-        setHoveredZips,
-
-      onToggle:
-        toggleZip,
-    },
-  );
+    onToggle: toggleZip,
+  });
 
   /*
    * `areas` now comes directly from MongoDB service ZIPs.
    */
-  const groups =
-    useMemo(
-      () => {
-        if (
-          zoom ===
-          undefined
-        ) {
-          return [];
-        }
+  const groups = useMemo(() => {
+    if (zoom === undefined) {
+      return [];
+    }
 
-        return groupNearbyZips(
-          areas,
+    return groupNearbyZips(
+      areas,
 
-          zoom,
+      zoom,
 
-          phone
-            ? STACK.phone
-            : STACK.desktop,
-        );
-      },
-      [
-        areas,
-        zoom,
-        phone,
-      ],
+      phone ? STACK.phone : STACK.desktop,
     );
+  }, [areas, zoom, phone]);
 
   /*
    * Browser-side debugging.
@@ -427,162 +291,72 @@ function ZipLayer({
    * Check DevTools -> Console.
    */
   useEffect(() => {
-    console.log(
-      "[ServiceMap] services:",
-      services,
-    );
+    console.log("[ServiceMap] services:", services);
 
-    console.log(
-      "[ServiceMap] areas:",
-      areas,
-    );
+    console.log("[ServiceMap] areas:", areas);
 
-    console.log(
-      "[ServiceMap] zoom:",
-      zoom,
-    );
+    console.log("[ServiceMap] zoom:", zoom);
 
-    console.log(
-      "[ServiceMap] groups:",
-      groups,
-    );
+    console.log("[ServiceMap] groups:", groups);
 
     console.log(
       "[ServiceMap] service zips:",
-      services.map(
-        (
-          service,
-        ) =>
-          service.zip,
-      ),
+      services.map((service) => service.zip),
     );
-  }, [
-    services,
-    areas,
-    zoom,
-    groups,
-  ]);
+  }, [services, areas, zoom, groups]);
 
   return (
     <>
-      {groups.map(
-        (
-          group,
-        ) => {
-          const zips =
-            group.zips.map(
-              (
-                area,
-              ) =>
-                normalizeZip(
-                  area.zip,
-                ),
-            );
+      {groups.map((group) => {
+        const zips = group.zips.map((area) => normalizeZip(area.zip));
 
-          const cards =
-            cardsFor(
-              group,
-              services,
-            );
+        const cards = cardsFor(group, services);
 
-          const merged =
-            zips.length >
-            1;
+        const merged = zips.length > 1;
 
-          const selected =
-            selectedZip !==
-              null &&
-            zips.includes(
-              normalizeZip(
-                selectedZip,
-              ),
-            );
+        const selected =
+          selectedZip !== null && zips.includes(normalizeZip(selectedZip));
 
-          const hovered =
-            hoveredZips.some(
-              (
-                zip,
-              ) =>
-                zips.includes(
-                  normalizeZip(
-                    zip,
-                  ),
-                ),
-            );
+        const hovered = hoveredZips.some((zip) =>
+          zips.includes(normalizeZip(zip)),
+        );
 
-          /*
-           * IMPORTANT:
-           *
-           * Do NOT return null if cards.length === 0.
-           *
-           * A marker still renders so a bad service match
-           * cannot silently hide the entire marker.
-           */
-          return (
-            <AdvancedMarker
-              key={
-                group.key
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT return null if cards.length === 0.
+         *
+         * A marker still renders so a bad service match
+         * cannot silently hide the entire marker.
+         */
+        return (
+          <AdvancedMarker
+            key={group.key}
+            position={group.position}
+            title={
+              merged
+                ? `${zips.length} areas: ${zips.join(", ")}`
+                : (cards[0]?.title ?? `ZIP ${zips[0]}`)
+            }
+            zIndex={selected ? 3 : hovered ? 2 : 1}
+            onMouseEnter={() => setHoveredZips(zips)}
+            onMouseLeave={() => setHoveredZips([])}
+            onClick={() => {
+              if (merged) {
+                zoomToZips(map, group.zips, phone);
+              } else {
+                toggleZip(zips[0]);
               }
-              position={
-                group.position
-              }
-              title={
-                merged
-                  ? `${zips.length} areas: ${zips.join(", ")}`
-                  : cards[0]
-                      ?.title ??
-                    `ZIP ${zips[0]}`
-              }
-              zIndex={
-                selected
-                  ? 3
-                  : hovered
-                    ? 2
-                    : 1
-              }
-              onMouseEnter={() =>
-                setHoveredZips(
-                  zips,
-                )
-              }
-              onMouseLeave={() =>
-                setHoveredZips(
-                  [],
-                )
-              }
-              onClick={() => {
-                if (
-                  merged
-                ) {
-                  zoomToZips(
-                    map,
-                    group.zips,
-                    phone,
-                  );
-                } else {
-                  toggleZip(
-                    zips[0],
-                  );
-                }
-              }}
-            >
-              <CardStack
-                cards={
-                  cards
-                }
-                label={
-                  merged
-                    ? `${zips.length} areas`
-                    : zips[0]
-                }
-                selected={
-                  selected
-                }
-              />
-            </AdvancedMarker>
-          );
-        },
-      )}
+            }}
+          >
+            <CardStack
+              cards={cards}
+              label={merged ? `${zips.length} areas` : zips[0]}
+              selected={selected}
+            />
+          </AdvancedMarker>
+        );
+      })}
     </>
   );
 }
@@ -593,44 +367,28 @@ function ZipLayer({
 |--------------------------------------------------------------------------
 */
 
-function useMapZoom(
-  map:
-    | google.maps.Map
-    | null,
-) {
-  const subscribe =
-    useCallback(
-      (
-        onChange:
-          () => void,
-      ) => {
-        if (!map) {
-          return () => {};
-        }
+function useMapZoom(map: google.maps.Map | null) {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!map) {
+        return () => {};
+      }
 
-        const listener =
-          map.addListener(
-            "zoom_changed",
-            onChange,
-          );
+      const listener = map.addListener("zoom_changed", onChange);
 
-        return () => {
-          listener.remove();
-        };
-      },
-      [
-        map,
-      ],
-    );
+      return () => {
+        listener.remove();
+      };
+    },
+    [map],
+  );
 
   return useSyncExternalStore(
     subscribe,
 
-    () =>
-      map?.getZoom(),
+    () => map?.getZoom(),
 
-    () =>
-      undefined,
+    () => undefined,
   );
 }
 
@@ -641,9 +399,7 @@ function useMapZoom(
 */
 
 function useZipOutlines(
-  map:
-    | google.maps.Map
-    | null,
+  map: google.maps.Map | null,
 
   {
     selectedZip,
@@ -651,23 +407,13 @@ function useZipOutlines(
     onHover,
     onToggle,
   }: {
-    selectedZip:
-      string | null;
+    selectedZip: string | null;
 
-    hoveredZips:
-      string[];
+    hoveredZips: string[];
 
-    onHover:
-      (
-        zips:
-          string[],
-      ) => void;
+    onHover: (zips: string[]) => void;
 
-    onToggle:
-      (
-        zip:
-          string,
-      ) => void;
+    onToggle: (zip: string) => void;
   },
 ) {
   useEffect(() => {
@@ -675,34 +421,17 @@ function useZipOutlines(
       return;
     }
 
-    const features =
-      map.data.addGeoJson(
-        boundaries,
-      );
+    const features = map.data.addGeoJson(boundaries);
 
-    const zipOf = (
-      event:
-        google.maps.Data.MouseEvent,
-    ) =>
-      normalizeZip(
-        event.feature.getProperty(
-          "zip",
-        ),
-      );
+    const zipOf = (event: google.maps.Data.MouseEvent) =>
+      normalizeZip(event.feature.getProperty("zip"));
 
     const listeners = [
       map.data.addListener(
         "mouseover",
 
-        (
-          event:
-            google.maps.Data.MouseEvent,
-        ) => {
-          onHover([
-            zipOf(
-              event,
-            ),
-          ]);
+        (event: google.maps.Data.MouseEvent) => {
+          onHover([zipOf(event)]);
         },
       ),
 
@@ -710,114 +439,57 @@ function useZipOutlines(
         "mouseout",
 
         () => {
-          onHover(
-            [],
-          );
+          onHover([]);
         },
       ),
 
       map.data.addListener(
         "click",
 
-        (
-          event:
-            google.maps.Data.MouseEvent,
-        ) => {
-          onToggle(
-            zipOf(
-              event,
-            ),
-          );
+        (event: google.maps.Data.MouseEvent) => {
+          onToggle(zipOf(event));
         },
       ),
     ];
 
     return () => {
-      listeners.forEach(
-        (
-          listener,
-        ) => {
-          listener.remove();
-        },
-      );
+      listeners.forEach((listener) => {
+        listener.remove();
+      });
 
-      features.forEach(
-        (
-          feature,
-        ) => {
-          map.data.remove(
-            feature,
-          );
-        },
-      );
+      features.forEach((feature) => {
+        map.data.remove(feature);
+      });
     };
-  }, [
-    map,
-    onHover,
-    onToggle,
-  ]);
+  }, [map, onHover, onToggle]);
 
   useEffect(() => {
     if (!map) {
       return;
     }
 
-    map.data.setStyle(
-      (
-        feature,
-      ) => {
-        const zip =
-          normalizeZip(
-            feature.getProperty(
-              "zip",
-            ),
-          );
+    map.data.setStyle((feature) => {
+      const zip = normalizeZip(feature.getProperty("zip"));
 
-        const active =
-          zip ===
-            normalizeZip(
-              selectedZip,
-            ) ||
-          hoveredZips.some(
-            (
-              hoveredZip,
-            ) =>
-              normalizeZip(
-                hoveredZip,
-              ) ===
-              zip,
-          );
+      const active =
+        zip === normalizeZip(selectedZip) ||
+        hoveredZips.some((hoveredZip) => normalizeZip(hoveredZip) === zip);
 
-        return {
-          fillColor:
-            HIGHLIGHT,
+      return {
+        fillColor: HIGHLIGHT,
 
-          fillOpacity:
-            active
-              ? 0.3
-              : 0.001,
+        fillOpacity: active ? 0.3 : 0.001,
 
-          strokeColor:
-            HIGHLIGHT,
+        strokeColor: HIGHLIGHT,
 
-          strokeOpacity:
-            active
-              ? 1
-              : 0,
+        strokeOpacity: active ? 1 : 0,
 
-          strokeWeight:
-            2,
+        strokeWeight: 2,
 
-          cursor:
-            "pointer",
-        };
-      },
-    );
-  }, [
-    map,
-    selectedZip,
-    hoveredZips,
-  ]);
+        cursor: "pointer",
+      };
+    });
+  }, [map, selectedZip, hoveredZips]);
 }
 
 /*
@@ -827,90 +499,48 @@ function useZipOutlines(
 */
 
 function groupNearbyZips(
-  areas:
-    ZipArea[],
+  areas: ZipArea[],
 
-  zoom:
-    number,
+  zoom: number,
 
   stack: {
-    width:
-      number;
+    width: number;
 
-    height:
-      number;
+    height: number;
   },
 ): Group[] {
   const groups: {
-    zips:
-      ZipArea[];
+    zips: ZipArea[];
 
-    x:
-      number;
+    x: number;
 
-    y:
-      number;
+    y: number;
   }[] = [];
 
-  for (
-    const area of
-    areas
-  ) {
+  for (const area of areas) {
     /*
      * Ignore invalid coordinates rather than allowing
      * one bad service to break every marker.
      */
-    if (
-      !Number.isFinite(
-        area.lat,
-      ) ||
-      !Number.isFinite(
-        area.lng,
-      )
-    ) {
-      console.warn(
-        "[ServiceMap] Invalid area coordinates:",
-        area,
-      );
+    if (!Number.isFinite(area.lat) || !Number.isFinite(area.lng)) {
+      console.warn("[ServiceMap] Invalid area coordinates:", area);
 
       continue;
     }
 
-    const {
-      x,
-      y,
-    } =
-      toScreenPixels(
-        area,
-        zoom,
-      );
+    const { x, y } = toScreenPixels(area, zoom);
 
-    const near =
-      groups.find(
-        (
-          group,
-        ) =>
-          Math.abs(
-            group.x -
-              x,
-          ) <
-            stack.width &&
-          Math.abs(
-            group.y -
-              y,
-          ) <
-            stack.height,
-      );
+    const near = groups.find(
+      (group) =>
+        Math.abs(group.x - x) < stack.width &&
+        Math.abs(group.y - y) < stack.height,
+    );
 
     if (near) {
-      near.zips.push(
-        area,
-      );
+      near.zips.push(area);
     } else {
       groups.push({
-        zips: [
-          area,
-        ],
+        zips: [area],
 
         x,
 
@@ -919,115 +549,41 @@ function groupNearbyZips(
     }
   }
 
-  return groups.map(
-    ({
-      zips,
-    }) => ({
-      key:
-        zips
-          .map(
-            (
-              area,
-            ) =>
-              normalizeZip(
-                area.zip,
-              ),
-          )
-          .join(
-            "-",
-          ),
+  return groups.map(({ zips }) => ({
+    key: zips.map((area) => normalizeZip(area.zip)).join("-"),
 
-      zips,
+    zips,
 
-      position: {
-        lat:
-          average(
-            zips.map(
-              (
-                area,
-              ) =>
-                area.lat,
-            ),
-          ),
+    position: {
+      lat: average(zips.map((area) => area.lat)),
 
-        lng:
-          average(
-            zips.map(
-              (
-                area,
-              ) =>
-                area.lng,
-            ),
-          ),
-      },
-    }),
-  );
+      lng: average(zips.map((area) => area.lng)),
+    },
+  }));
 }
 
 function toScreenPixels(
-  {
-    lat,
-    lng,
-  }: ZipArea,
+  { lat, lng }: ZipArea,
 
-  zoom:
-    number,
+  zoom: number,
 ) {
-  const size =
-    256 *
-    2 ** zoom;
+  const size = 256 * 2 ** zoom;
 
-  const sin =
-    Math.sin(
-      (lat *
-        Math.PI) /
-        180,
-    );
+  const sin = Math.sin((lat * Math.PI) / 180);
 
   return {
-    x:
-      ((lng +
-        180) /
-        360) *
-      size,
+    x: ((lng + 180) / 360) * size,
 
-    y:
-      (0.5 -
-        Math.log(
-          (1 +
-            sin) /
-            (1 -
-              sin),
-        ) /
-          (4 *
-            Math.PI)) *
-      size,
+    y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size,
   };
 }
 
-function average(
-  values:
-    number[],
-) {
-  if (
-    values.length ===
-    0
-  ) {
+function average(values: number[]) {
+  if (values.length === 0) {
     return 0;
   }
 
-  return (
-    values.reduce(
-      (
-        sum,
-        value,
-      ) =>
-        sum +
-        value,
-      0,
-    ) /
-    values.length
-  );
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 /*
@@ -1037,42 +593,18 @@ function average(
 */
 
 function cardsFor(
-  group:
-    Group,
+  group: Group,
 
-  services:
-    Service[],
+  services: Service[],
 ): Service[] {
-  const groupZips =
-    new Set(
-      group.zips.map(
-        (
-          area,
-        ) =>
-          normalizeZip(
-            area.zip,
-          ),
-      ),
-    );
+  const groupZips = new Set(group.zips.map((area) => normalizeZip(area.zip)));
 
   /*
    * Compare normalized ZIP strings on both sides.
    */
   return services
-    .filter(
-      (
-        service,
-      ) =>
-        groupZips.has(
-          normalizeZip(
-            service.zip,
-          ),
-        ),
-    )
-    .slice(
-      0,
-      MAX_CARDS,
-    );
+    .filter((service) => groupZips.has(normalizeZip(service.zip)))
+    .slice(0, MAX_CARDS);
 }
 
 /*
@@ -1082,36 +614,25 @@ function cardsFor(
 */
 
 function zoomToZips(
-  map:
-    | google.maps.Map
-    | null,
+  map: google.maps.Map | null,
 
-  zips:
-    ZipArea[],
+  zips: ZipArea[],
 
-  phone:
-    boolean,
+  phone: boolean,
 ) {
   if (!map) {
     return;
   }
 
-  const bounds =
-    new google.maps.LatLngBounds();
+  const bounds = new google.maps.LatLngBounds();
 
-  zips.forEach(
-    (
-      area,
-    ) => {
-      bounds.extend({
-        lat:
-          area.lat,
+  zips.forEach((area) => {
+    bounds.extend({
+      lat: area.lat,
 
-        lng:
-          area.lng,
-      });
-    },
-  );
+      lng: area.lng,
+    });
+  });
 
   map.fitBounds(
     bounds,
@@ -1139,130 +660,65 @@ function zoomToZips(
 */
 
 function initialBounds(
-  areas:
-    ZipArea[],
+  areas: ZipArea[],
 
-  selectedZip:
-    string | null,
+  selectedZip: string | null,
 
-  phone:
-    boolean,
+  phone: boolean,
 ) {
   const focus =
     areas.find(
-      (
-        area,
-      ) =>
-        normalizeZip(
-          area.zip,
-        ) ===
-        normalizeZip(
-          selectedZip,
-        ),
-    ) ??
-    areas[0];
+      (area) => normalizeZip(area.zip) === normalizeZip(selectedZip),
+    ) ?? areas[0];
 
-  const shown =
-    phone &&
-    focus
-      ? [
-          focus,
-        ]
-      : areas;
+  const shown = phone && focus ? [focus] : areas;
 
-  if (
-    shown.length ===
-    0
-  ) {
+  if (shown.length === 0) {
     return {
-      north:
-        40.83,
+      north: 40.83,
 
-      south:
-        40.68,
+      south: 40.68,
 
-      east:
-        -73.85,
+      east: -73.85,
 
-      west:
-        -74.05,
+      west: -74.05,
     };
   }
 
-  const margin =
-    phone
-      ? 0.012
-      : 0.005;
+  const margin = phone ? 0.012 : 0.005;
 
-  const lats =
-    shown.map(
-      (
-        area,
-      ) =>
-        area.lat,
-    );
+  const lats = shown.map((area) => area.lat);
 
-  const lngs =
-    shown.map(
-      (
-        area,
-      ) =>
-        area.lng,
-    );
+  const lngs = shown.map((area) => area.lng);
 
   return {
-    north:
-      Math.max(
-        ...lats,
-      ) +
-      margin,
+    north: Math.max(...lats) + margin,
 
-    south:
-      Math.min(
-        ...lats,
-      ) -
-      margin,
+    south: Math.min(...lats) - margin,
 
-    east:
-      Math.max(
-        ...lngs,
-      ) +
-      margin,
+    east: Math.max(...lngs) + margin,
 
-    west:
-      Math.min(
-        ...lngs,
-      ) -
-      margin,
+    west: Math.min(...lngs) - margin,
 
-    padding:
-      phone
-        ? {
-            top:
-              120,
+    padding: phone
+      ? {
+          top: 120,
 
-            right:
-              30,
+          right: 30,
 
-            bottom:
-              20,
+          bottom: 20,
 
-            left:
-              30,
-          }
-        : {
-            top:
-              160,
+          left: 30,
+        }
+      : {
+          top: 160,
 
-            right:
-              80,
+          right: 80,
 
-            bottom:
-              50,
+          bottom: 50,
 
-            left:
-              80,
-          },
+          left: 80,
+        },
   };
 }
 
@@ -1277,77 +733,40 @@ function CardStack({
   label,
   selected,
 }: {
-  cards:
-    Service[];
+  cards: Service[];
 
-  label:
-    string;
+  label: string;
 
-  selected:
-    boolean;
+  selected: boolean;
 }) {
   /*
    * If service matching somehow fails, still show
    * a visible ZIP marker instead of rendering nothing.
    */
-  if (
-    cards.length ===
-    0
-  ) {
-    return (
-      <EmptyCard
-        label={
-          label
-        }
-        selected={
-          selected
-        }
-      />
-    );
+  if (cards.length === 0) {
+    return <EmptyCard label={label} selected={selected} />;
   }
 
-  const [
-    front,
-    ...back
-  ] =
-    cards;
+  const [front, ...back] = cards;
 
   return (
     <div className="relative">
-      {back.map(
-        (
-          service,
-          index,
-        ) => (
-          <Card
-            key={
-              service.id
-            }
-            service={
-              service
-            }
-            className={cn(
-              "absolute inset-0",
+      {back.map((service, index) => (
+        <Card
+          key={service.id}
+          service={service}
+          className={cn(
+            "absolute inset-0",
 
-              index ===
-                0
-                ? "-rotate-12"
-                : "rotate-12",
-            )}
-          />
-        ),
-      )}
+            index === 0 ? "-rotate-12" : "rotate-12",
+          )}
+        />
+      ))}
 
       <Card
-        service={
-          front
-        }
-        label={
-          label
-        }
-        selected={
-          selected
-        }
+        service={front}
+        label={label}
+        selected={selected}
         className="relative"
       />
     </div>
@@ -1360,22 +779,15 @@ function Card({
   selected = false,
   className,
 }: {
-  service:
-    Service;
+  service: Service;
 
-  label?:
-    string;
+  label?: string;
 
-  selected?:
-    boolean;
+  selected?: boolean;
 
-  className?:
-    string;
+  className?: string;
 }) {
-  const imageUrl =
-    getServiceImageUrl(
-      service,
-    );
+  const imageUrl = getServiceImageUrl(service);
 
   return (
     <div
@@ -1384,8 +796,7 @@ function Card({
 
         "lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
 
-        selected &&
-          "ring-[3px] ring-xchg-blue",
+        selected && "ring-[3px] ring-xchg-blue",
 
         className,
       )}
@@ -1393,12 +804,8 @@ function Card({
       {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={
-            imageUrl
-          }
-          alt={
-            service.title
-          }
+          src={imageUrl}
+          alt={service.title}
           className="aspect-square w-full rounded-[12px] object-cover lg:rounded-[15px]"
         />
       ) : (
@@ -1408,13 +815,10 @@ function Card({
       )}
 
       <p
-        title={
-          service.title
-        }
+        title={service.title}
         className="flex h-5 items-center justify-center truncate px-1 text-xs text-black lg:h-6 lg:text-[13px]"
       >
-        {label ??
-          service.title}
+        {label ?? service.title}
       </p>
     </div>
   );
@@ -1424,11 +828,9 @@ function EmptyCard({
   label,
   selected,
 }: {
-  label:
-    string;
+  label: string;
 
-  selected:
-    boolean;
+  selected: boolean;
 }) {
   return (
     <div
@@ -1437,8 +839,7 @@ function EmptyCard({
 
         "lg:w-[104px] lg:rounded-[20px] lg:p-1.5",
 
-        selected &&
-          "ring-[3px] ring-xchg-blue",
+        selected && "ring-[3px] ring-xchg-blue",
       )}
     >
       <div className="flex aspect-square w-full items-center justify-center rounded-[12px] bg-[#2ca3ff] px-2 text-center text-xs font-semibold text-white lg:rounded-[15px]">
@@ -1452,17 +853,10 @@ function EmptyCard({
   );
 }
 
-function MapNotice({
-  children,
-}: {
-  children:
-    ReactNode;
-}) {
+function MapNotice({ children }: { children: ReactNode }) {
   return (
     <div className="flex size-full items-center justify-center bg-[#e9ecef] p-6 text-center text-sm text-xchg-gray">
-      <p className="max-w-xs">
-        {children}
-      </p>
+      <p className="max-w-xs">{children}</p>
     </div>
   );
 }

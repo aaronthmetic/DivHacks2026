@@ -2,7 +2,12 @@
 
 import Image from "next/image";
 import { Star } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/utils";
 
 const MAX_TAGS = 3;
@@ -15,12 +20,11 @@ export type MongoService = {
   ratingCount: number;
 
   location: string;
+  zip: string;
   tags: string[];
 
-  // MongoDB / GridFS image IDs
   images: string[];
 
-  // Add whatever other DB fields you have
   description?: string;
   price?: number;
   userId?: string;
@@ -36,12 +40,47 @@ export function ResultsPanel({
   query: string;
   compact?: boolean;
 }) {
+  const [selectedZip, setSelectedZip] = useState<string | null>(null);
+
+  /*
+   * Listen for selectedZip changes coming directly
+   * from service-map.tsx.
+   */
+  useEffect(() => {
+    function handleZipChange(event: Event) {
+      const customEvent = event as CustomEvent<string | null>;
+
+      setSelectedZip(customEvent.detail);
+    }
+
+    window.addEventListener(
+      "xchg:selectedZip",
+      handleZipChange,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "xchg:selectedZip",
+        handleZipChange,
+      );
+    };
+  }, []);
+
   const normalizedQuery = query.trim().toLowerCase();
+  const normalizedZip = selectedZip?.trim() ?? "";
 
   const filteredServices = services.filter((service) => {
-    if (!normalizedQuery) return true;
+    const matchesSearch =
+      !normalizedQuery ||
+      service.title
+        .toLowerCase()
+        .includes(normalizedQuery);
 
-    return service.title.toLowerCase().includes(normalizedQuery);
+    const matchesZip =
+      !normalizedZip ||
+      String(service.zip).trim() === normalizedZip;
+
+    return matchesSearch && matchesZip;
   });
 
   return (
@@ -61,13 +100,17 @@ export function ResultsPanel({
         >
           {filteredServices.map((service) => (
             <li key={service.id}>
-              <ServiceCard service={service} compact={compact} />
+              <ServiceCard
+                service={service}
+                compact={compact}
+              />
             </li>
           ))}
         </ul>
       ) : (
         <p className="mt-6 text-xchg-gray">
-          No services found matching “{query}”.
+          No services found matching “{query || "anything"}”
+          {selectedZip ? ` in ${selectedZip}` : ""}.
         </p>
       )}
     </div>
@@ -81,18 +124,6 @@ function ServiceCard({
   service: MongoService;
   compact: boolean;
 }) {
-  /*
-   * If service.images looks like:
-   *
-   * [
-   *   "68d712345678901234567890",
-   *   "68d712345678901234567891"
-   * ]
-   *
-   * then this points to:
-   *
-   * /api/images/68d712345678901234567890
-   */
   const imageUrl =
     service.images && service.images.length > 0
       ? `/api/images/${service.images[0]}`
@@ -102,10 +133,11 @@ function ServiceCard({
     <article
       className={cn(
         "overflow-hidden bg-white shadow-[0_4px_12px_rgba(0,0,0,0.15)]",
-        compact ? "rounded-[14px] p-3.5" : "rounded-[24px] p-[27px]",
+        compact
+          ? "rounded-[14px] p-3.5"
+          : "rounded-[24px] p-[27px]",
       )}
     >
-      {/* Service image from MongoDB / GridFS */}
       <div
         className={cn(
           "relative aspect-square w-full overflow-hidden bg-zinc-100",
@@ -132,7 +164,6 @@ function ServiceCard({
         )}
       </div>
 
-      {/* Title + rating */}
       <div
         className={cn(
           "flex items-start justify-between gap-2",
@@ -158,7 +189,6 @@ function ServiceCard({
         </p>
       </div>
 
-      {/* Location + number of ratings */}
       <div
         className={cn(
           "flex justify-between gap-2 text-xchg-gray",
@@ -174,7 +204,6 @@ function ServiceCard({
         </span>
       </div>
 
-      {/* MongoDB tags */}
       <TagList
         tags={service.tags ?? []}
         compact={compact}
@@ -279,10 +308,7 @@ function TagList({
         </span>
 
         {tags.map((tag) => (
-          <span
-            key={tag}
-            className={chip}
-          >
+          <span key={tag} className={chip}>
             {tag}
           </span>
         ))}
@@ -295,19 +321,17 @@ function TagList({
           compact ? "gap-1.5" : "gap-3",
         )}
       >
-        {tags
-          .slice(0, visible)
-          .map((tag) => (
-            <li
-              key={tag}
-              className={cn(
-                chip,
-                "min-w-0 shrink truncate",
-              )}
-            >
-              {tag}
-            </li>
-          ))}
+        {tags.slice(0, visible).map((tag) => (
+          <li
+            key={tag}
+            className={cn(
+              chip,
+              "min-w-0 shrink truncate",
+            )}
+          >
+            {tag}
+          </li>
+        ))}
 
         {hidden > 0 && (
           <li className="ml-auto shrink-0 pl-1">

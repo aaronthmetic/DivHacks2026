@@ -33,10 +33,15 @@ export interface Service {
 /** Added details are optional for bookings created before full snapshots. */
 export type ServiceSnapshot = Pick<Service, "title" | "description" | "pricingType" | "creditRate">
   & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images" | "frequency" | "availability">>;
+/** A time and place one person suggested for an accepted booking (lib/coordination.ts). */
+export interface BookingProposal { startsAt: Date; place?: string; byUserId: ObjectId; createdAt: Date }
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;
   serviceSnapshot: ServiceSnapshot;
-  durationMinutes?: number; totalCredits: number; scheduledAt?: Date;
+  /** `scheduledAt` and `place` are the agreed time and place, set when a proposal is confirmed. */
+  durationMinutes?: number; totalCredits: number; scheduledAt?: Date; place?: string;
+  /** The latest proposal the other person hasn't confirmed yet. */
+  proposal?: BookingProposal;
   /** The listing window the requester picked; absent for listings without windows. */
   preferredWindow?: AvailabilityWindow; note?: string;
   status: "requested" | "accepted" | "awaiting_confirmation" | "completed" | "declined" | "cancelled";
@@ -68,6 +73,8 @@ export async function ensureExchangeIndexes(db: Db) {
     c.reviews.createIndex({ subjectUserId: 1, createdAt: -1, _id: -1 }),
     c.bookings.createIndex({ requesterId: 1, status: 1, scheduledAt: 1, _id: 1 }),
     c.reviews.createIndex({ bookingId: 1, authorId: 1 }, { unique: true }),
+    // Finds requests nobody answered (lib/booking-expiry.ts).
+    c.bookings.createIndex({ status: 1, createdAt: 1 }),
   ]);
 }
 /** Categories offered when creating a listing. Admins can deactivate or rename them later. */

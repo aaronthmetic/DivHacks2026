@@ -67,8 +67,8 @@ test("YES accepts the only waiting request and NO declines with a refund", async
   await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "Yes" });
   assert.equal((await exchangeCollections(db).bookings.findOne({ _id: first._id }))?.status, "accepted");
   assert.deepEqual(texts.sent, [
-    { phone: emily.phone, text: "barter: You accepted Barry's Guitar Lessons request. We'll help you both pick a time and place next." },
-    { phone: barry.phone, text: "barter: Emily accepted your Guitar Lessons request! We'll help you both pick a time and place next." },
+    { phone: emily.phone, text: 'barter: You accepted Barry\'s Guitar Lessons request. What time on Sat 10 AM–2 PM works for you, and how will you meet? Reply like "Sat 10 AM on Zoom".' },
+    { phone: barry.phone, text: "barter: Emily accepted your Guitar Lessons request! We'll text you when Emily suggests a time and place." },
   ]);
   const second = await request(barry.id, emily.id, "Piano Lessons");
   texts.sent.length = 0;

@@ -61,7 +61,9 @@ async function decide(db: Db, client: MongoClient, messenger: Messenger, provide
   }
   const requester = await db.collection("user").findOne({ _id: booking.requesterId });
   const names = { title: booking.serviceSnapshot.title, requesterFirstName: String(requester?.firstName ?? "the requester"), providerFirstName: String(provider.firstName) };
-  const texts = answer === "yes" ? acceptedTexts(names) : declinedTexts({ ...names, totalCredits: booking.totalCredits });
+  const texts = answer === "yes"
+    ? acceptedTexts({ ...names, window: booking.preferredWindow, deliveryMode: booking.serviceSnapshot.deliveryMode })
+    : declinedTexts({ ...names, totalCredits: booking.totalCredits });
   await messenger.send(phone, texts.provider);
   if (typeof requester?.phoneNumber === "string") await messenger.send(requester.phoneNumber, texts.requester);
 }

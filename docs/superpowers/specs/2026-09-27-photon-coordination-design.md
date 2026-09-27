@@ -27,8 +27,8 @@ barter: Emily accepted your Guitar Lessons request! We'll text you when Emily su
 
 From then on, the assistant handles texts from either person while they have an accepted booking that hasn't been delivered yet.
 
-- **Proposing:** a text like "Sat 11 AM at Butler Library" becomes a proposal. The other person gets `barter: Emily suggests Sat, Oct 4 at 11 AM at Butler Library for Guitar Lessons. Reply OK to confirm, or suggest another time.` The sender gets a short reply from the assistant, such as "barter: Sent to Barry. I'll text you when Barry answers."
-- **Confirming:** when the other person agrees ("OK", "yes", "works for me"), both get `barter: You're set: Guitar Lessons with Emily on Sat, Oct 4 at 11 AM at Butler Library.` Each text names the other person.
+- **Proposing:** a text like "Sat 11 AM at Butler Library" becomes a proposal. The other person gets `barter: Emily suggests Sat, Oct 3 at 11 AM at Butler Library for Guitar Lessons. Reply OK to confirm, or suggest another time.` The sender gets a short reply from the assistant, such as "barter: Sent to Barry. I'll text you when Barry answers."
+- **Confirming:** when the other person agrees ("OK", "yes", "works for me"), both get `barter: You're set: Guitar Lessons with Emily on Sat, Oct 3 at 11 AM at Butler Library.` Each text names the other person.
 - **Counter-proposals:** replying with a different time makes a new proposal in the other direction. Only the latest proposal can be confirmed.
 - **Notes:** "Tell Emily I'll bring my own guitar" reaches Emily as `barter: Barry says about Guitar Lessons: "I'll bring my own guitar."` Only proposals, confirmations and notes pass between the two people; nothing else is forwarded.
 - **Questions:** "When is my lesson?" or "What did Barry ask for?" get answers from the booking's details.
@@ -78,7 +78,7 @@ Because proposals ask for "OK", a bare YES only reaches Part A when the sender r
   - `confirm(db, actorId, bookingId, proposalCreatedAt)` checks that a proposal exists, that it was made by the other person, and that it's the proposal the actor saw. It then sets `scheduledAt` and `place` and removes the proposal in one guarded update.
 - **`lib/coordinator.ts`:** `coordinate(db, messenger, llm, sender, text)`.
   - It builds the context: the current New York date and time, the sender's active bookings with codes, each booking's details and availability, and the last 20 texts in the sender's thread.
-  - It offers three tools: `propose_time(code, startsAt, place?)`, where `startsAt` is a New York local time like `2026-10-04T11:00`; `confirm_time(code)`; and `send_note(code, text)`.
+  - It offers three tools: `propose_time(code, startsAt, place?)`, where `startsAt` is a New York local time like `2026-10-03T11:00`; `confirm_time(code)`; and `send_note(code, text)`.
   - It runs at most 4 model steps, then texts the model's final reply to the sender, prefixed with "barter:" if needed and capped at 480 characters.
   - Tool results, including validation errors, go back to the model so it can explain or ask again. Relayed texts use the fixed wording above, never model-written text.
 - **`lib/booking-expiry.ts`:** `expireStaleRequests(db, client, messenger, now)` cancels up to 50 requests older than 48 hours per run, as the requester, which refunds the coins. It texts both people. A request that a reply changed in the meantime is skipped.

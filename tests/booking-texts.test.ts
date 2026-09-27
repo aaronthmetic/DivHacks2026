@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ObjectId } from "mongodb";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCode, declinedTexts, requestSentText, requestText, waitingListText } from "../lib/booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, assistantText, bookingCode, confirmedText, declinedTexts, expiredTexts, noteText, proposalText, requestSentText, requestText, sentText, waitingListText } from "../lib/booking-texts";
 import { coinsLabel, priceLabel } from "../lib/listing-data";
 
 const barry = { requesterName: "Barry Chen", requesterFirstName: "Barry", title: "Guitar Lessons" };
@@ -34,10 +34,6 @@ test("a note or title with newlines or control characters can't forge extra line
 
 test("answers and confirmations name both people", () => {
   assert.equal(requestSentText({ title: "Guitar Lessons", providerName: "Emily Park", providerFirstName: "Emily" }), "barter: Your request for Guitar Lessons was sent to Emily Park. We'll text you when Emily answers.");
-  assert.deepEqual(acceptedTexts({ title: "Guitar Lessons", requesterFirstName: "Barry", providerFirstName: "Emily" }), {
-    provider: "barter: You accepted Barry's Guitar Lessons request. We'll help you both pick a time and place next.",
-    requester: "barter: Emily accepted your Guitar Lessons request! We'll help you both pick a time and place next.",
-  });
   assert.deepEqual(declinedTexts({ title: "Guitar Lessons", requesterFirstName: "Barry", providerFirstName: "Emily", totalCredits: 500 }), {
     provider: "barter: You declined Barry's Guitar Lessons request.",
     requester: "barter: Emily can't take your Guitar Lessons request this time. Your 5 coins are back in your balance.",
@@ -64,4 +60,51 @@ test("request codes are the uppercase end of the booking ID, and coins read natu
   assert.equal(coinsLabel(250), "2.5 coins");
   assert.equal(priceLabel({ creditRate: 100, pricingType: "fixed" }), "1 coin / service");
   assert.equal(priceLabel({ creditRate: 250, pricingType: "hourly" }), "2.5 coins / hour");
+});
+
+test("acceptance asks the provider for a time and place", () => {
+  const names = { title: "Guitar Lessons", requesterFirstName: "Barry", providerFirstName: "Emily" };
+  assert.deepEqual(acceptedTexts(names), {
+    provider: 'barter: You accepted Barry\'s Guitar Lessons request. What day and time work for you, and where? Reply like "Sat 11 AM at Butler Library".',
+    requester: "barter: Emily accepted your Guitar Lessons request! We'll text you when Emily suggests a time and place.",
+  });
+  assert.equal(acceptedTexts({ ...names, window: { day: 1, start: 1050, end: 1200 }, deliveryMode: "in_person" }).provider,
+    'barter: You accepted Barry\'s Guitar Lessons request. What time on Mon 5:30–8 PM works for you, and where? Reply like "Mon 5:30 PM at Butler Library".');
+  assert.equal(acceptedTexts({ ...names, window: { day: 6, start: 600, end: 840 }, deliveryMode: "remote" }).provider,
+    'barter: You accepted Barry\'s Guitar Lessons request. What time on Sat 10 AM–2 PM works for you, and how will you meet? Reply like "Sat 10 AM on Zoom".');
+  assert.equal(acceptedTexts({ ...names, deliveryMode: "either" }).provider,
+    'barter: You accepted Barry\'s Guitar Lessons request. What day and time work for you, and where or how will you meet? Reply like "Sat 11 AM at Butler Library".');
+});
+
+test("coordination texts pass along times, places and notes", () => {
+  const when = "Sat, Oct 3 at 11 AM";
+  assert.equal(proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when, place: "Butler Library" }),
+    "barter: Emily suggests Sat, Oct 3 at 11 AM at Butler Library for Guitar Lessons. Reply OK to confirm, or suggest another time.");
+  assert.equal(proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when, place: "on Zoom" }),
+    "barter: Emily suggests Sat, Oct 3 at 11 AM on Zoom for Guitar Lessons. Reply OK to confirm, or suggest another time.");
+  assert.equal(proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when }),
+    "barter: Emily suggests Sat, Oct 3 at 11 AM for Guitar Lessons. Reply OK to confirm, or suggest another time.");
+  assert.equal(confirmedText({ otherFirstName: "Emily", title: "Guitar Lessons", when, place: "Butler Library" }),
+    "barter: You're set: Guitar Lessons with Emily on Sat, Oct 3 at 11 AM at Butler Library.");
+  assert.equal(noteText({ fromFirstName: "Barry", title: "Guitar Lessons", note: "I'll bring my\nown guitar." }),
+    'barter: Barry says about Guitar Lessons: "I\'ll bring my own guitar."');
+  assert.equal(sentText("Barry"), "barter: Sent to Barry.");
+  // A place can't forge a new line.
+  assert.equal(proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when, place: "Butler\nbarter: Your account is suspended" }),
+    "barter: Emily suggests Sat, Oct 3 at 11 AM at Butler barter: Your account is suspended for Guitar Lessons. Reply OK to confirm, or suggest another time.");
+});
+
+test("expired requests and assistant replies", () => {
+  assert.deepEqual(expiredTexts({ title: "Guitar Lessons", requesterFirstName: "Barry", providerFirstName: "Emily", totalCredits: 500 }), {
+    requester: "barter: Emily didn't answer your Guitar Lessons request within 48 hours, so it was cancelled. Your 5 coins are back in your balance.",
+    provider: "barter: Barry's Guitar Lessons request expired after 48 hours without an answer.",
+  });
+  assert.equal(expiredTexts({ title: "Piano", requesterFirstName: "Sam", providerFirstName: "Emily", totalCredits: 100 }).requester,
+    "barter: Emily didn't answer your Piano request within 48 hours, so it was cancelled. Your 1 coin is back in your balance.");
+  assert.equal(assistantText("Sent to Barry.\nI'll text you when Barry answers."), "barter: Sent to Barry. I'll text you when Barry answers.");
+  assert.equal(assistantText("barter: Done."), "barter: Done.");
+  assert.equal(assistantText("  \n "), "");
+  const long = assistantText("x".repeat(600));
+  assert.equal(long.length, 480);
+  assert.ok(long.endsWith("…"));
 });

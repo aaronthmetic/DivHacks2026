@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createLlm, llmConfig, LlmError, GEMINI_BASE_URL, DEFAULT_MODEL, type ChatMessage, type ToolDefinition } from "../lib/llm";
+import {
+  createLlm, llmConfig, LlmError, LlmTimeout, LlmHttp, LlmNetwork, LlmBadJson, LlmNoMessage,
+  GEMINI_BASE_URL, DEFAULT_MODEL, type ChatMessage, type ToolDefinition,
+} from "../lib/llm";
 
 const messages: ChatMessage[] = [{ role: "user", content: "Hi" }];
 const tools: ToolDefinition[] = [{ type: "function", function: { name: "propose_time", description: "Propose a time", parameters: { type: "object", properties: {} } } }];
@@ -18,14 +21,14 @@ function fakeFetch(response: Response) {
   return { fn, calls };
 }
 
-/** Asserts the promise rejects with an LlmError and hands the message to `check`. */
-async function rejectsWithLlmError(promise: Promise<unknown>, check?: (message: string) => void) {
+/** Asserts the promise rejects with an LlmError (any subclass) and hands the error to `check`. */
+async function rejectsWithLlmError(promise: Promise<unknown>, check?: (error: LlmError) => void) {
   try {
     await promise;
     assert.fail("expected an LlmError");
   } catch (error) {
     assert.ok(error instanceof LlmError, `expected an LlmError, got ${error}`);
-    check?.(error.message);
+    check?.(error as LlmError);
   }
 }
 
@@ -134,13 +137,15 @@ test("provider-specific extra fields round-trip unchanged", async () => {
   assert.equal(call.index, 0);
 });
 
-test("non-2xx responses (400/429/500) throw LlmError with the status but never the API key", async () => {
+test("non-2xx responses (400/429/500) throw a distinctly-named LlmHttp<status> but never the API key", async () => {
   for (const status of [400, 429, 500]) {
     const { fn } = fakeFetch(new Response("rate limited or bad request, details from the provider", { status }));
     const llm = createLlm({ baseUrl: "https://example.test", apiKey: "super-secret-key", model: "m" }, fn);
-    await rejectsWithLlmError(llm.chat(messages, []), (message) => {
-      assert.match(message, new RegExp(String(status)));
-      assert.ok(!message.includes("super-secret-key"), `message leaked the API key: ${message}`);
+    await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+      assert.ok(error instanceof LlmHttp, `expected an LlmHttp, got ${error}`);
+      assert.equal(error.name, `LlmHttp${status}`);
+      assert.match(error.message, new RegExp(String(status)));
+      assert.ok(!error.message.includes("super-secret-key"), `message leaked the API key: ${error.message}`);
     });
   }
 });
@@ -149,13 +154,13 @@ test("a non-2xx response body is capped at 200 characters", async () => {
   const longBody = "x".repeat(500);
   const { fn } = fakeFetch(new Response(longBody, { status: 500 }));
   const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn);
-  await rejectsWithLlmError(llm.chat(messages, []), (message) => {
-    const included = message.slice(message.indexOf("x"));
+  await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+    const included = error.message.slice(error.message.indexOf("x"));
     assert.equal(included.length, 200);
   });
 });
 
-test("aborts after timeoutMs and throws LlmError", async () => {
+test("aborts after timeoutMs and throws a distinctly-named LlmTimeout", async () => {
   const fn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     return new Promise<Response>((_resolve, reject) => {
       const abort = () => reject(new DOMException("The operation timed out.", "TimeoutError"));
@@ -166,25 +171,73 @@ test("aborts after timeoutMs and throws LlmError", async () => {
     });
   }) as typeof fetch;
   const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn, 20);
-  await rejectsWithLlmError(llm.chat(messages, []), (message) => {
-    assert.match(message, /timed out/i);
+  await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmTimeout, `expected an LlmTimeout, got ${error}`);
+    assert.equal(error.name, "LlmTimeout");
+    assert.match(error.message, /timed out/i);
   });
 });
 
-test("malformed JSON in the response throws LlmError", async () => {
-  const { fn } = fakeFetch(new Response("not json{{{", { status: 200 }));
-  const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn);
-  await rejectsWithLlmError(llm.chat(messages, []));
+// Known issue 2 / spec I2 / llm M1 / correctness M2: a fetch impl that resolves its headers
+// promptly but then stalls forever reading the body must still be bounded by the same timeout —
+// the abort timer has to stay armed until the body read settles, not just until headers arrive.
+test("the timeout also covers reading the body, not just receiving headers", { timeout: 2_000 }, async () => {
+  const fn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    return {
+      ok: true,
+      status: 200,
+      // Never resolves on its own; only rejects once the same request's signal aborts.
+      json: () => new Promise((_resolve, reject) => {
+        const abort = () => reject(new DOMException("The operation timed out.", "TimeoutError"));
+        if (init?.signal?.aborted) abort();
+        else init?.signal?.addEventListener("abort", abort);
+      }),
+      text: () => new Promise(() => {}),
+    } as unknown as Response;
+  }) as typeof fetch;
+  const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn, 20);
+  await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmTimeout, `expected an LlmTimeout, got ${error}`);
+    assert.equal(error.name, "LlmTimeout");
+    assert.match(error.message, /timed out/i);
+  });
 });
 
-test("a response missing choices[0].message throws LlmError", async () => {
+test("a network failure unrelated to the timeout throws a distinctly-named LlmNetwork", async () => {
+  const fn = (async () => {
+    throw new Error("getaddrinfo ENOTFOUND example.test");
+  }) as unknown as typeof fetch;
+  const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn);
+  await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmNetwork, `expected an LlmNetwork, got ${error}`);
+    assert.equal(error.name, "LlmNetwork");
+    assert.match(error.message, /ENOTFOUND/);
+  });
+});
+
+test("malformed JSON in the response throws a distinctly-named LlmBadJson", async () => {
+  const { fn } = fakeFetch(new Response("not json{{{", { status: 200 }));
+  const llm = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, fn);
+  await rejectsWithLlmError(llm.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmBadJson, `expected an LlmBadJson, got ${error}`);
+    assert.equal(error.name, "LlmBadJson");
+  });
+});
+
+test("a response missing choices[0].message throws a distinctly-named LlmNoMessage", async () => {
   const { fn: emptyChoices } = fakeFetch(jsonResponse(200, { choices: [] }));
   const llmA = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, emptyChoices);
-  await rejectsWithLlmError(llmA.chat(messages, []));
+  await rejectsWithLlmError(llmA.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmNoMessage, `expected an LlmNoMessage, got ${error}`);
+    assert.equal(error.name, "LlmNoMessage");
+  });
 
   const { fn: noChoices } = fakeFetch(jsonResponse(200, {}));
   const llmB = createLlm({ baseUrl: "https://example.test", apiKey: "k", model: "m" }, noChoices);
-  await rejectsWithLlmError(llmB.chat(messages, []));
+  await rejectsWithLlmError(llmB.chat(messages, []), (error) => {
+    assert.ok(error instanceof LlmNoMessage, `expected an LlmNoMessage, got ${error}`);
+    assert.equal(error.name, "LlmNoMessage");
+  });
 });
 
 test("llmConfig is null without an API key", () => {

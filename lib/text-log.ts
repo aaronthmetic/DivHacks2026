@@ -7,7 +7,8 @@ export type TextRole = "person" | "barter";
 export type LoggedText = { role: TextRole; text: string; createdAt: Date };
 
 const TEXT_LOG_TTL_SECONDS = 14 * 24 * 60 * 60;
-const MAX_TEXT_LENGTH = 2000;
+/** How much of each text the log keeps. The assistant gives the model no more of the text it answers. */
+export const MAX_TEXT_LENGTH = 2000;
 
 type StoredText = { phoneNumber: string; role: TextRole; text: string; createdAt: Date };
 const texts = (db: Db) => db.collection<StoredText>("textMessage");

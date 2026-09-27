@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { MongoClient, type Db } from "mongodb";
-import { countTextsFrom, ensureTextLogIndexes, loggingMessenger, logText, recentTexts } from "../lib/text-log";
+import { MAX_TEXT_LENGTH, countTextsFrom, ensureTextLogIndexes, loggingMessenger, logText, recentTexts } from "../lib/text-log";
 
 let server: MongoMemoryReplSet, client: MongoClient, db: Db;
 before(async () => {
@@ -44,11 +44,12 @@ test("countTextsFrom counts only that phone's person texts at or after the given
   assert.equal(await countTextsFrom(db, phone, since), 1);
 });
 
-test("logText cuts long text to 2000 characters", async () => {
+test("logText cuts long text to MAX_TEXT_LENGTH, 2000 characters", async () => {
   const phone = "+12025550704";
+  assert.equal(MAX_TEXT_LENGTH, 2000);
   await logText(db, phone, "person", "x".repeat(2500));
   const [entry] = await recentTexts(db, phone, 1);
-  assert.equal(entry.text.length, 2000);
+  assert.equal(entry.text.length, MAX_TEXT_LENGTH);
 });
 
 test("loggingMessenger logs the text as barter after a successful send", async () => {

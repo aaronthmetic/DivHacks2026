@@ -8,9 +8,14 @@ const DELIVERY: Record<ServiceDocument["deliveryMode"], string> = { in_person: "
 
 const coins = (credits: number) => (credits / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
+/** "1 coin", "5 coins" or "2.5 coins", from integer hundredths. */
+export function coinsLabel(credits: number) {
+  const amount = coins(credits);
+  return `${amount} ${amount === "1" ? "coin" : "coins"}`;
+}
+
 export function priceLabel({ creditRate, pricingType }: Pick<ServiceDocument, "creditRate" | "pricingType">) {
-  const amount = coins(creditRate);
-  return `${amount} ${amount === "1" ? "coin" : "coins"} / ${pricingType === "hourly" ? "hour" : "service"}`;
+  return `${coinsLabel(creditRate)} / ${pricingType === "hourly" ? "hour" : "service"}`;
 }
 
 export function frequencyLabel(frequency: ServiceDocument["frequency"]) {

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { CategoryOption } from "@/lib/barter/data";
+import { DAY_NAMES, SHORT_DAY_NAMES, WEEK_DAYS } from "@/lib/availability";
 import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
 
@@ -29,6 +30,8 @@ const number =
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 type Photo = { id: number; file: File; url: string };
+// A chosen day's hours, as the time inputs' "HH:MM" values.
+type DayHours = { day: number; start: string; end: string };
 
 async function shrinkPhoto(file: File): Promise<File> {
   if (file.size <= KEEP_PHOTO_BYTES) return file;
@@ -83,6 +86,7 @@ function CreateListingForm({
 }) {
   const [deliveryMode, setDeliveryMode] = useState("");
   const [frequency, setFrequency] = useState<"single" | "recurring">("single");
+  const [days, setDays] = useState<DayHours[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -122,15 +126,38 @@ function CreateListingForm({
     setPhotos((current) => current.filter((item) => item.id !== photo.id));
   }
 
+  // Rows stay in the order days were picked, so a new day copies the latest hours.
+  function toggleDay(day: number) {
+    setDays((current) => {
+      if (current.some((row) => row.day === day)) return current.filter((row) => row.day !== day);
+      const latest = current.at(-1);
+      return [...current, { day, start: latest?.start ?? "09:00", end: latest?.end ?? "17:00" }];
+    });
+  }
+
+  function setHours(day: number, key: "start" | "end", value: string) {
+    setDays((current) => current.map((row) => (row.day === day ? { ...row, [key]: value } : row)));
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    if (days.length === 0) {
+      setError("Choose at least one day you're available.");
+      return;
+    }
+    // Time inputs give zero-padded 24-hour values, so they compare as strings.
+    if (days.some((row) => !row.start || !row.end || row.end <= row.start)) {
+      setError("Each day's end time must be after its start time.");
+      return;
+    }
     if (photos.reduce((total, photo) => total + photo.file.size, 0) > MAX_TOTAL_BYTES) {
       setError("Your photos are too large. Remove one or choose smaller photos.");
       return;
     }
     // Disabled inputs (the repeat interval of a single-time listing) are left out.
     const form = new FormData(event.currentTarget);
+    form.set("availability", JSON.stringify(days));
     photos.forEach((photo) => form.append("images", photo.file, photo.file.name));
     setBusy(true);
     setError("");
@@ -286,6 +313,63 @@ function CreateListingForm({
                 />
               </div>
             </div>
+          </div>
+          <div role="group" aria-labelledby="new-listing-availability" className="lg:col-span-2">
+            <p id="new-listing-availability" className={label}>Availability</p>
+            <div className="flex flex-wrap gap-2">
+              {WEEK_DAYS.map((day) => {
+                const chosen = days.some((row) => row.day === day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => toggleDay(day)}
+                    aria-pressed={chosen}
+                    aria-label={DAY_NAMES[day]}
+                    className={cn(
+                      "h-[41px] min-w-[58px] border px-3 text-[15px] font-semibold transition-colors",
+                      chosen
+                        ? "border-barter-navy bg-barter-navy text-white"
+                        : "border-barter-line bg-white text-[#636363] hover:border-barter-navy",
+                    )}
+                  >
+                    {SHORT_DAY_NAMES[day]}
+                  </button>
+                );
+              })}
+            </div>
+            {days.length > 0 && (
+              <ul className="mt-4 grid gap-3">
+                {[...days]
+                  .sort((a, b) => WEEK_DAYS.indexOf(a.day) - WEEK_DAYS.indexOf(b.day))
+                  .map((row) => (
+                    <li key={row.day} className="flex items-center gap-3">
+                      <span className="w-10 shrink-0 text-[15px] font-bold">{SHORT_DAY_NAMES[row.day]}</span>
+                      {/* Unnamed on purpose: the rows are sent together as the availability field. */}
+                      <input
+                        type="time"
+                        step={900}
+                        required
+                        value={row.start}
+                        onChange={(event) => setHours(row.day, "start", event.target.value)}
+                        aria-label={`${DAY_NAMES[row.day]} from`}
+                        className={cn(field, "flex-1 px-3 lg:w-[170px] lg:flex-none")}
+                      />
+                      <span className="text-[15px] font-bold">to</span>
+                      <input
+                        type="time"
+                        step={900}
+                        required
+                        value={row.end}
+                        onChange={(event) => setHours(row.day, "end", event.target.value)}
+                        aria-label={`${DAY_NAMES[row.day]} until`}
+                        className={cn(field, "flex-1 px-3 lg:w-[170px] lg:flex-none")}
+                      />
+                    </li>
+                  ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[13px] text-[#636363]">Times are New York time.</p>
           </div>
           <div className="lg:col-start-1">
             <p className={label}>Image upload</p>

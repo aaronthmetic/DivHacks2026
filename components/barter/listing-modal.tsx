@@ -118,7 +118,19 @@ function ListingBody({ service, requests, onClose, onEdit }: { service: Service;
                 {service.availability.length > 0 && " (New York time)"}
               </p>
             </section>
-            <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
+            <div className="flex flex-wrap items-center gap-3 lg:max-w-[460px] lg:shrink-0">
+              <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
+              {!service.own && service.providerId && (
+                <Link
+                  href={`/profile/${service.providerId}`}
+                  onNavigate={onClose}
+                  aria-label={`View ${service.providerName}'s profile and reviews`}
+                  className="flex h-14 shrink-0 items-center justify-center rounded-[10px] border border-barter-navy px-6 font-mono text-xl font-extrabold text-barter-navy transition-colors hover:bg-barter-read focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
+                >
+                  View profile
+                </Link>
+              )}
+            </div>
           </div>
           {service.own && onEdit && <button type="button" onClick={onEdit} className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90">Edit</button>}
         </>
@@ -151,7 +163,7 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
     return <p role="status" className="max-w-[260px] font-mono text-base font-bold lg:text-lg">Request sent. We&apos;ll text you when {providerFirstName} answers.</p>;
   }
   if (!service.providerTextsEnabled) {
-    return <p className="max-w-[260px] font-mono text-base text-barter-gray lg:text-lg">Requests aren&apos;t available for this provider yet</p>;
+    return <p className="min-w-0 max-w-[260px] flex-[1_1_180px] font-mono text-base text-barter-gray lg:text-lg">Requests aren&apos;t available for this provider yet</p>;
   }
   return (
     <button type="button" onClick={onContact} aria-label={`Contact ${service.providerName}`} className={contactButton}>

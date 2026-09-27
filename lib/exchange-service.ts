@@ -1,3 +1,4 @@
+import { rebuildUserRatings } from "./review-ratings";
 // Server-side domain operations. Callers must derive actor IDs from authenticated sessions.
 import { ObjectId, type ClientSession, type Db, type Document, type MongoClient } from "mongodb";
 import { snapshotService, validateScheduledAt } from "./booking-snapshot";
@@ -228,20 +229,8 @@ export function createExchangeService(db: Db, client: MongoClient) {
         const booking = await c.bookings.findOne({ _id: bookingId, status: "completed" }, { session });
         requireValue(booking && (authorId.equals(booking.providerId) || authorId.equals(booking.requesterId)), "Only participants in completed bookings may review.");
         const review = { _id: new ObjectId(), bookingId, authorId, subjectUserId: authorId.equals(booking.providerId) ? booking.requesterId : booking.providerId, rating, comment: comment.trim(), createdAt: new Date() };
-        // Serialize reviews of the same user; transaction retries see the latest reviews.
-        const subject = await db.collection("user").updateOne(
-          { _id: review.subjectUserId }, { $inc: { numberOfReviews: 1 } }, { session },
-        );
-        requireValue(subject.matchedCount === 1, "Review recipient not found.");
         await c.reviews.insertOne(review, { session });
-        // Rebuild from the source records so legacy users also include earlier reviews.
-        const received = await c.reviews.find({ subjectUserId: review.subjectUserId }, { session })
-          .sort({ createdAt: 1, _id: 1 }).toArray();
-        await db.collection("user").updateOne({ _id: review.subjectUserId }, { $set: {
-          rating: received.reduce((sum, item) => sum + item.rating, 0) / received.length,
-          numberOfReviews: received.length,
-          reviews: received.map((item) => item._id.toHexString()),
-        } }, { session });
+        requireValue(await rebuildUserRatings(db, review.subjectUserId, session), "Review recipient not found.");
         await notify(session, [{ userId: review.subjectUserId, actorId: authorId, type: "review_received", bookingId, serviceId: booking.serviceId, reviewId: review._id, href: "/profile",
           message: `${await firstName(authorId, session)} left you a ${rating}-star review for ${booking.serviceSnapshot.title}.` }]);
         return review;

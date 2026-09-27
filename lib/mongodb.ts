@@ -3,6 +3,7 @@ import "server-only";
 import { AuthConfigurationError, logAuthFailure } from "./auth-errors";
 import { MongoClient } from "mongodb";
 import { ensureAuthIndexes } from "./auth-indexes";
+import { ensureTextLogIndexes } from "./text-log";
 import { ensureTextingIndexes } from "./texting";
 
 const globalMongo = globalThis as typeof globalThis & {
@@ -23,6 +24,7 @@ export function getMongo() {
         void ensureExchangeIndexes(db).catch((error) => logAuthFailure("Exchange index setup", error));
         void ensureDefaultGenres(db).catch((error) => logAuthFailure("Default category setup", error));
         void ensureTextingIndexes(db).catch((error) => logAuthFailure("Texting index setup", error));
+        void ensureTextLogIndexes(db).catch((error) => logAuthFailure("Text log index setup", error));
         return { client, db };
       } catch (error) {
         await client.close();

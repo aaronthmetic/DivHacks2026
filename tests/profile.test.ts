@@ -56,6 +56,27 @@ test("profile DTOs protect privacy, filter listings, order bookings, and paginat
   assert.equal(await getProfileData(db, new ObjectId().toHexString(), owner.toHexString(), "1"), null);
 });
 
+test("booking cards show the agreed time and place in New York time", async () => {
+  const requester = new ObjectId(), provider = new ObjectId();
+  await db.collection("user").insertMany([
+    { _id: requester, name: "Requester", email: "cards-requester@example.com" },
+    { _id: provider, name: "Provider", email: "cards-provider@example.com" },
+  ]);
+  await db.collection("booking").insertMany([
+    { serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 250, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "Butler Library" },
+    { serviceSnapshot: { title: "Yoga", description: "Session" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 150, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "on Zoom" },
+    { serviceSnapshot: { title: "Tutoring", description: "Math help" }, status: "requested", requesterId: requester, providerId: provider, totalCredits: 100 },
+  ]);
+  const profile = (await getProfileData(db, requester.toHexString(), requester.toHexString(), "1"))!;
+  const inPerson = profile.bookings.find(b => b.title === "Guitar Lessons")!;
+  assert.deepEqual(inPerson.lines.slice(0, 2), ["Sat, Oct 3 at 11 AM", "At Butler Library"]);
+  const remote = profile.bookings.find(b => b.title === "Yoga")!;
+  assert.deepEqual(remote.lines.slice(0, 2), ["Sat, Oct 3 at 11 AM", "On Zoom"]);
+  const unscheduled = profile.bookings.find(b => b.title === "Tutoring")!;
+  assert.equal(unscheduled.lines[0], "Not scheduled");
+  assert.equal(unscheduled.lines[1], "requested");
+});
+
 test("reviews name the service that was booked", async () => {
   const subject = new ObjectId(), author = new ObjectId(), bookingId = new ObjectId();
   await db.collection("user").insertMany([{ _id: subject, name: "Subject", email: "subject@example.com" }, { _id: author, name: "Author", email: "author@example.com" }]);

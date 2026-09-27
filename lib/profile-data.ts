@@ -2,6 +2,7 @@ import { ObjectId, type Db } from "mongodb";
 import { exchangeCollections } from "./exchange-schema";
 import { frequencyLabel, priceLabel } from "./listing-data";
 import { editableListing, type EditableListing } from "./listing-edit";
+import { formatNewYork } from "./new-york-time";
 import type { CategoryOption } from "./barter/data";
 import type { Service } from "./barter/data";
 
@@ -24,6 +25,8 @@ export function reviewPage(value: unknown, pages: number) {
 }
 const credits = (amount: number) => `${(amount / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} credits`;
 const status = (value: string) => value.replaceAll("_", " ");
+// A place already read naturally ("On Zoom") is kept as is; anything else is introduced with "At".
+const placeLine = (place: string) => /^(at|on|in|via|over|by)\b/i.test(place) ? place.charAt(0).toUpperCase() + place.slice(1) : `At ${place}`;
 
 // Call only from authenticated server entrypoints. Explicit projections/DTOs keep
 // contact details and booking records out of other users' serialized page props.
@@ -80,7 +83,7 @@ export async function getProfileData(db: Db, profileId: string, viewerId: string
     }),
     bookings: bookings.map(b => ({ category: b.serviceSnapshot.genreId ? genreNames.get(b.serviceSnapshot.genreId.toHexString()) : undefined, images: (b.serviceSnapshot.images ?? []).map(image => `/api/images/${image.toHexString()}`), location: b.serviceSnapshot.zipCode ? neighborhoods.get(b.serviceSnapshot.zipCode) ?? `ZIP ${b.serviceSnapshot.zipCode}` : "Remote", zip: b.serviceSnapshot.zipCode ?? null, tags: [`${credits(b.serviceSnapshot.creditRate)}${b.serviceSnapshot.pricingType === "hourly" ? " / hour" : " / service"}`, b.serviceSnapshot.deliveryMode === "in_person" ? "In person" : b.serviceSnapshot.deliveryMode === "either" ? "In person or remote" : "Remote", frequencyLabel(b.serviceSnapshot.frequency)], availability: b.serviceSnapshot.availability ?? [], rating: 0, ratingCount: 0, pricingType: b.serviceSnapshot.pricingType, creditRate: b.serviceSnapshot.creditRate, providerTextsEnabled: Boolean(person.get(b.providerId.toHexString())?.textsEnabledAt), providerId: b.providerId.toHexString(), providerName: person.get(b.providerId.toHexString())?.name || "Member", own: false, image: b.serviceSnapshot.images?.[0] ? `/api/images/${b.serviceSnapshot.images[0].toHexString()}` : undefined, id: b._id.toHexString(), title: b.serviceSnapshot.title, description: b.serviceSnapshot.description,
       provider: { id: b.providerId.toHexString(), name: person.get(b.providerId.toHexString())?.name || "Member" },
-      lines: [b.scheduledAt ? `${b.scheduledAt.toLocaleString("en-US", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" })} UTC` : "Not scheduled", status(b.status), `${credits(b.totalCredits)} total`,
+      lines: [b.scheduledAt ? formatNewYork(b.scheduledAt) : "Not scheduled", ...(b.place ? [placeLine(b.place)] : []), status(b.status), `${credits(b.totalCredits)} total`,
         `${credits(b.serviceSnapshot.creditRate)}${b.serviceSnapshot.pricingType === "hourly" ? " / hour" : " / service"}`,
         ...(b.durationMinutes ? [`${b.durationMinutes} minutes`] : []),
         ...(b.serviceSnapshot.deliveryMode ? [status(b.serviceSnapshot.deliveryMode)] : []),

@@ -1,3 +1,4 @@
+import { editableListing } from "./listing-edit";
 import { ObjectId, type Db } from "mongodb";
 import { exchangeCollections, type Service as ServiceDocument } from "./exchange-schema";
 import { zipAreas, type CategoryOption, type Service } from "./barter/data";
@@ -40,6 +41,7 @@ export async function getExplorerData(db: Db, viewerId: string): Promise<{ listi
     const owner = provider.get(s.userId.toHexString());
     const zip = s.zipCode ?? null;
     return [{
+      ...(s.userId.equals(viewer) ? { editable: editableListing(s) } : {}),
       id: s._id.toHexString(), title: s.title, description: s.description, category,
       images: (s.images ?? []).map((id) => `/api/images/${id.toHexString()}`),
       rating: Number.isFinite(owner?.rating) ? Math.max(0, Math.min(5, owner!.rating)) : 0,

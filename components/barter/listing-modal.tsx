@@ -13,9 +13,11 @@ import { useState } from "react";
 export function ListingModal({
   service,
   onClose,
+  onEdit,
 }: {
   service: Service | null;
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <Modal
@@ -70,14 +72,15 @@ export function ListingModal({
               </p>
             </section>
             {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
-            <Link
-              href={service.own ? "/profile" : `/profile/${service.providerId}`}
-              aria-label={service.own ? "View your profile" : `Contact ${service.providerName}`}
+            {!service.own && <Link
+              href={`/profile/${service.providerId}`}
+              aria-label={`Contact ${service.providerName}`}
               className="flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
             >
-              {service.own ? "Your profile" : "Contact"}
-            </Link>
+              Contact
+            </Link>}
           </div>
+          {service.own && onEdit && <button type="button" onClick={onEdit} className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90">Edit</button>}
         </div>
       )}
     </Modal>

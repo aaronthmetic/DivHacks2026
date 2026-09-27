@@ -45,6 +45,11 @@ export function formatAvailability(windows: AvailabilityWindow[] | undefined) {
   return [...groups].map(([hours, days]) => `${days.join(", ")} ${hours}`).join(" · ");
 }
 
+/** 1050 → "5:30 PM"; whole hours drop ":00". */
+export function formatClock(minutes: number) {
+  return clock(minutes).join(" ");
+}
+
 // The period is written once when both ends share it: "5–8 PM", but "10 AM–2 PM".
 function formatHours(start: number, end: number) {
   const [from, fromPeriod] = clock(start), [until, untilPeriod] = clock(end);

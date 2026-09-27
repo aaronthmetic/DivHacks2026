@@ -3,12 +3,14 @@ import { createExchangeService } from "./exchange-service";
 import { MongoServerError, ObjectId, type Db } from "mongodb";
 import type { Auth } from "./auth-config";
 import { conflictMessage, InputError, isProfileComplete, names, nameField, normalizeEmail, normalizePhone, objectBody, onlyFields } from "./auth-validation";
+import type { RegisterPhoton } from "./photon-users";
+import { ensurePhotonUser } from "./texting";
 
 export function apiError(status: number, code: string, message: string) {
   return Response.json({ error: { code, message } }, { status });
 }
 
-export async function updateProfile(request: Request, auth: Auth, db: Db, origin: string, complete: boolean) {
+export async function updateProfile(request: Request, auth: Auth, db: Db, origin: string, complete: boolean, registerPhoton?: RegisterPhoton) {
   try {
     if (request.headers.get("origin") !== origin) return apiError(403, "INVALID_ORIGIN", "This request is not allowed.");
     const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
@@ -46,14 +48,18 @@ export async function updateProfile(request: Request, auth: Auth, db: Db, origin
       if (!current) throw new ProfileChangedError();
       if ("firstName" in updates || "lastName" in updates) updates.name = `${updates.firstName ?? current.firstName} ${updates.lastName ?? current.lastName}`;
       if ("email" in updates && updates.email !== current.email) updates.emailVerified = false;
-      if ("phoneNumber" in updates && updates.phoneNumber !== current.phoneNumber) updates.phoneNumberVerified = false;
+      // Texts were turned on for the old number, so a new number starts over.
+      const phoneChanged = "phoneNumber" in updates && updates.phoneNumber !== current.phoneNumber;
+      if (phoneChanged) updates.phoneNumberVerified = false;
       const result = await db.collection("user").updateOne(
         { _id: userId, ...(complete ? { profileCompletedAt: null } : {}) },
-        { $set: updates }, { session: transactionSession },
+        { $set: updates, ...(phoneChanged ? { $unset: { photonUserId: "", photonNumber: "", textsEnabledAt: "" } } : {}) }, { session: transactionSession },
       );
       if (result.matchedCount !== 1) throw new ProfileChangedError();
       await createExchangeService(db, db.client).grantWelcome(userId, transactionSession);
     }));
+    // Registering with Photon never fails the save; the next sign-in retries it.
+    if (complete && registerPhoton) await ensurePhotonUser(db, new ObjectId(session.user.id), registerPhoton).catch((error) => logAuthFailure("Photon registration", error));
     return Response.json({ success: true });
   } catch (error) {
     if (error instanceof ProfileChangedError) return apiError(409, "PROFILE_CHANGED", "Your profile changed. Refresh the page and try again.");

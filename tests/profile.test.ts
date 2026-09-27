@@ -24,11 +24,11 @@ after(async () => { await client?.close(); await server?.stop(); });
 
 test("profile DTOs protect privacy, filter listings, order bookings, and paginate reviews", async () => {
   const owner = new ObjectId(), visitor = new ObjectId();
+  const createdAt = new Date();
   await db.collection("user").insertMany([
-    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11 },
+    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11, textsEnabledAt: createdAt },
     { _id: visitor, name: "Visitor", email: "visitor@example.com" },
   ]);
-  const createdAt = new Date();
   await db.collection("service").insertMany(["active", "paused", "archived"].map(status => ({ userId: owner, status, title: status, description: "Details", creditRate: 250, pricingType: "fixed", deliveryMode: "remote", createdAt })));
   const now = Date.now();
   const makeBooking = (title: string, status: string, time?: number, requesterId = owner) => ({ serviceSnapshot: { title, description: "Booked details" }, status, requesterId, providerId: visitor, totalCredits: 250, ...(time === undefined ? {} : { scheduledAt: new Date(time) }) });
@@ -47,12 +47,50 @@ test("profile DTOs protect privacy, filter listings, order bookings, and paginat
   const second = (await getProfileData(db, owner.toHexString(), visitor.toHexString(), "2"))!;
   assert.equal(second.isOwner, false); assert.equal(second.bookings.length, 0);
   assert.deepEqual(second.listings.map(s => s.title), ["active"]);
+  assert.deepEqual([second.listings[0].pricingType, second.listings[0].creditRate, second.listings[0].providerTextsEnabled], ["fixed", 250, true]);
   assert.equal(second.reviews.length, 1); assert.equal(second.reviews[0].id, reviewIds[0].toHexString());
   assert.equal(JSON.stringify(second).includes("private@example.com"), false);
   assert.equal(JSON.stringify(second).includes("+12025550199"), false);
   assert.equal((await getProfileData(db, visitor.toHexString(), owner.toHexString(), "bad"))!.rating, 0);
   assert.equal(await getProfileData(db, "invalid", owner.toHexString(), "1"), null);
   assert.equal(await getProfileData(db, new ObjectId().toHexString(), owner.toHexString(), "1"), null);
+});
+
+test("booking cards show the agreed time and place in New York time", async () => {
+  const requester = new ObjectId(), provider = new ObjectId();
+  await db.collection("user").insertMany([
+    { _id: requester, name: "Requester", email: "cards-requester@example.com" },
+    { _id: provider, name: "Provider", email: "cards-provider@example.com" },
+  ]);
+  await db.collection("booking").insertMany([
+    { serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 250, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "Butler Library" },
+    { serviceSnapshot: { title: "Yoga", description: "Session" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 150, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "on Zoom" },
+    { serviceSnapshot: { title: "Tutoring", description: "Math help" }, status: "requested", requesterId: requester, providerId: provider, totalCredits: 100 },
+    { serviceSnapshot: { title: "Cooking", description: "Class" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 100, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "on" },
+  ]);
+  const profile = (await getProfileData(db, requester.toHexString(), requester.toHexString(), "1"))!;
+  const inPerson = profile.bookings.find(b => b.title === "Guitar Lessons")!;
+  assert.deepEqual(inPerson.lines.slice(0, 2), ["Sat, Oct 3 at 11 AM", "At Butler Library"]);
+  const remote = profile.bookings.find(b => b.title === "Yoga")!;
+  assert.deepEqual(remote.lines.slice(0, 2), ["Sat, Oct 3 at 11 AM", "On Zoom"]);
+  const unscheduled = profile.bookings.find(b => b.title === "Tutoring")!;
+  assert.equal(unscheduled.lines[0], "Not scheduled");
+  assert.equal(unscheduled.lines[1], "requested");
+  // A place that's just the bare preposition "on": agrees with lib/booking-texts.ts's placePhrase (startsWithPreposition), which also treats it as already reading naturally.
+  const barePreposition = profile.bookings.find(b => b.title === "Cooking")!;
+  assert.equal(barePreposition.lines[1], "On");
+});
+
+test("reviews name the service that was booked", async () => {
+  const subject = new ObjectId(), author = new ObjectId(), bookingId = new ObjectId();
+  await db.collection("user").insertMany([{ _id: subject, name: "Subject", email: "subject@example.com" }, { _id: author, name: "Author", email: "author@example.com" }]);
+  await db.collection("booking").insertOne({ _id: bookingId, serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "completed", requesterId: author, providerId: subject, totalCredits: 100 });
+  await db.collection("review").insertMany([
+    { bookingId, subjectUserId: subject, authorId: author, rating: 5, comment: "Great", createdAt: new Date(2000) },
+    { bookingId: new ObjectId(), subjectUserId: subject, authorId: author, rating: 4, comment: "Good", createdAt: new Date(1000) },
+  ]);
+  const profile = (await getProfileData(db, subject.toHexString(), author.toHexString(), "1"))!;
+  assert.deepEqual(profile.reviews.map(review => review.serviceTitle), ["Guitar Lessons", undefined]);
 });
 
 test("fractional star fills and review page bounds", () => {

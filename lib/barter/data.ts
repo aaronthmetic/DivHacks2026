@@ -22,6 +22,11 @@ export type Service = {
   tags: string[];
   /** Weekly windows in New York time; empty for listings posted before availability existed. */
   availability: AvailabilityWindow[];
+  /** Pricing for the request form's total; the rate is in integer hundredths of a coin. */
+  pricingType: "fixed" | "hourly";
+  creditRate: number;
+  /** Whether the provider has turned on texts, so Contact can send them requests. */
+  providerTextsEnabled: boolean;
   providerId: string;
   providerName: string;
   /** Whether the signed-in viewer posted this listing. */

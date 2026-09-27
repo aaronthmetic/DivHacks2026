@@ -124,6 +124,10 @@ function BookingModal({
 
               availability: card.availability ?? [],
 
+              pricingType: card.pricingType ?? "fixed",
+              creditRate: card.creditRate ?? 0,
+              providerTextsEnabled: card.providerTextsEnabled ?? false,
+
               providerId:
                 card.providerId ??
                 card.provider?.id ??
@@ -195,6 +199,12 @@ function Carousel({
         tags: selected.tags ?? selected.lines,
 
         availability: selected.availability ?? [],
+
+        pricingType: selected.pricingType ?? "fixed",
+
+        creditRate: selected.creditRate ?? 0,
+
+        providerTextsEnabled: selected.providerTextsEnabled ?? false,
 
         providerId:
           selected.providerId ??

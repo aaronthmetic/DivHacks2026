@@ -48,6 +48,23 @@ function storedFrequency(frequency: ServiceFrequency): ServiceFrequency {
 function storedAvailability(availability: AvailabilityWindow[]): AvailabilityWindow[] {
   return availability.map(({ day, start, end }) => ({ day, start, end })).sort((a, b) => a.day - b.day);
 }
+/** The requester's note, trimmed; undefined when blank. */
+function requestNote(note: unknown) {
+  if (note === undefined) return undefined;
+  requireValue(typeof note === "string" && note.trim().length <= 300, "A note can be at most 300 characters.");
+  return note.trim() || undefined;
+}
+/** The listing window the requester picked; required whenever the listing has windows. */
+function chosenWindow(service: Service, window: AvailabilityWindow | undefined): AvailabilityWindow | undefined {
+  const windows = service.availability ?? [];
+  if (!windows.length) {
+    requireValue(window === undefined, "This listing has no time windows to choose from.");
+    return undefined;
+  }
+  const match = window && windows.find((item) => item.day === window.day && item.start === window.start && item.end === window.end);
+  requireValue(match, "Choose one of the provider's available times.");
+  return { day: match.day, start: match.start, end: match.end };
+}
 export function createExchangeService(db: Db, client: MongoClient) {
   const c = exchangeCollections(db);
   async function transaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
@@ -102,7 +119,8 @@ export function createExchangeService(db: Db, client: MongoClient) {
         return service;
       });
     },
-    async requestBooking(requesterId: ObjectId, serviceId: ObjectId, options: { durationMinutes?: number; scheduledAt?: Date } = {}) {
+    async requestBooking(requesterId: ObjectId, serviceId: ObjectId, options: { durationMinutes?: number; scheduledAt?: Date; preferredWindow?: AvailabilityWindow; note?: string } = {}) {
+      const note = requestNote(options.note);
       return transaction(async (session) => {
         await completeUser(requesterId, session);
         const service = await c.services.findOne({ _id: serviceId, status: "active" }, { session });
@@ -112,9 +130,10 @@ export function createExchangeService(db: Db, client: MongoClient) {
         await ensureAccount(service.userId, session);
         requireValue(await c.genres.findOne({ _id: service.genreId, isActive: true }, { session }), "An active genre is required.");
         validateScheduledAt(options.scheduledAt);
+        const preferredWindow = chosenWindow(service, options.preferredWindow);
         const totalCredits = calculateCredits(service.pricingType, service.creditRate, options.durationMinutes);
         const now = new Date();
-        const booking: Booking = { _id: new ObjectId(), serviceId, providerId: service.userId, requesterId, serviceSnapshot: snapshotService(service), ...(service.pricingType === "hourly" ? { durationMinutes: options.durationMinutes } : {}), ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}), totalCredits, status: "requested", createdAt: now, updatedAt: now };
+        const booking: Booking = { _id: new ObjectId(), serviceId, providerId: service.userId, requesterId, serviceSnapshot: snapshotService(service), ...(service.pricingType === "hourly" ? { durationMinutes: options.durationMinutes } : {}), ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}), ...(preferredWindow ? { preferredWindow } : {}), ...(note ? { note } : {}), totalCredits, status: "requested", createdAt: now, updatedAt: now };
         await move(requesterId, booking, "reserve", -totalCredits, totalCredits, session);
         await c.bookings.insertOne(booking, { session });
         return booking;
@@ -142,6 +161,16 @@ export function createExchangeService(db: Db, client: MongoClient) {
           await move(booking.providerId, booking, "earning", amount, 0, session);
         }
         return { ...booking, ...changes };
+      });
+    },
+    /** Cancels a request nobody answered and refunds the requester, like their own cancel, but only while it's still waiting. True when it did. */
+    async expireRequest(bookingId: ObjectId) {
+      return transaction(async (session) => {
+        // Matching the status here, not only in the sweep's earlier read, lets a YES or an overlapping sweep win.
+        const booking = await c.bookings.findOneAndUpdate({ _id: bookingId, status: "requested" }, { $set: { status: "cancelled", updatedAt: new Date() } }, { session });
+        if (!booking) return false;
+        await move(booking.requesterId, booking, "release", booking.totalCredits, -booking.totalCredits, session);
+        return true;
       });
     },
     async createReview(authorId: ObjectId, bookingId: ObjectId, rating: number, comment: string) {

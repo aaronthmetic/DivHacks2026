@@ -21,6 +21,10 @@ export async function getImageBucket(): Promise<GridFSBucket> {
 export async function uploadImage(
   file: File,
 ): Promise<ObjectId> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error(`${file.name} is not an image.`);
+  }
+
   const bucket =
     await getImageBucket();
 

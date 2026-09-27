@@ -294,6 +294,8 @@ function OverlayMarker({
    */
   useEffect(() => {
     if (!map || !container) return;
+    // The null check above doesn't carry into the class methods below.
+    const element = container;
 
     class ReactOverlay extends google.maps.OverlayView {
       onAdd() {
@@ -305,7 +307,7 @@ function OverlayMarker({
          * overlayMouseTarget is used instead of overlayLayer so the
          * React marker receives mouse events.
          */
-        panes.overlayMouseTarget.appendChild(container);
+        panes.overlayMouseTarget.appendChild(element);
       }
 
       draw() {
@@ -319,12 +321,12 @@ function OverlayMarker({
 
         if (!point) return;
 
-        container.style.left = `${point.x}px`;
-        container.style.top = `${point.y}px`;
+        element.style.left = `${point.x}px`;
+        element.style.top = `${point.y}px`;
       }
 
       onRemove() {
-        container.remove();
+        element.remove();
       }
     }
 

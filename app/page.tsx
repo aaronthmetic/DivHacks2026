@@ -21,7 +21,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
       // Browsers always see a Maps JavaScript API key, so restrict it to your
       // domains in Google Cloud.
       mapsApiKey={process.env.GOOGLE_MAPS_API_KEY}
-      mapsMapId={process.env.GOOGLE_MAPS_MAP_ID}
     />
   );
 }

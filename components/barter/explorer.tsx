@@ -41,7 +41,6 @@ export function Explorer({
   notifications,
   initialZip,
   mapsApiKey,
-  mapsMapId,
   query = "",
 }: {
   services: Service[];
@@ -51,7 +50,6 @@ export function Explorer({
   notifications: Notification[];
   initialZip: string | null;
   mapsApiKey?: string;
-  mapsMapId?: string;
   query?: string;
 }) {
   const router = useRouter();
@@ -60,9 +58,9 @@ export function Explorer({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const [selectedZip, setSelectedZip] = useState<string | null>(
-    initialZip ?? null,
-  );
+  // Nothing is selected at first, because a selected zip hides every other listing
+  // (remote ones included); `initialZip` only centers the map on phones.
+  const [selectedZip, setSelectedZip] = useState<string | null>(null);
 
   const [serviceFilters, setServiceFilters] =
     useState<ServiceFilters>(DEFAULT_FILTERS);
@@ -183,7 +181,6 @@ export function Explorer({
         <div className="absolute inset-x-0 top-0 bottom-[45%] lg:relative lg:inset-auto lg:flex-none lg:basis-[60%]">
           <ServiceMap
             apiKey={mapsApiKey}
-            mapId={mapsMapId}
             areas={areas}
             services={filteredServices}
             initialZip={initialZip}
@@ -337,11 +334,11 @@ function filterServices(
         service.category,
       );
 
+    // Remote listings have no zip, so they only match when no location is chosen.
     const matchesZip =
       filters.zips.length === 0 ||
-      filters.zips.includes(
-        service.zip,
-      );
+      (service.zip !== null &&
+        filters.zips.includes(service.zip));
 
     const matchesRating =
       (service.rating ?? 0) >=

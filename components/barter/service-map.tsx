@@ -20,7 +20,6 @@ import {
 import type { Service, ZipArea } from "@/lib/barter/data";
 import boundaries from "@/lib/barter/zip-boundaries.json";
 import { cn } from "@/lib/utils";
-import { ServiceArt } from "./results";
 
 const HIGHLIGHT = "#2ca3ff";
 const MAX_CARDS = 3;
@@ -561,15 +560,12 @@ function average(values: number[]) {
 function cardsFor(
   group: Group,
   services: Service[],
-): string[] {
+): (string | undefined)[] {
   if (group.zips.length > 1) {
     return group.zips
       .slice(0, MAX_CARDS)
-      .flatMap(
-        (area) =>
-          services.find(
-            (service) => service.zip === area.zip,
-          )?.category ?? [],
+      .map((area) =>
+        services.find((service) => service.zip === area.zip)?.images[0],
       );
   }
 
@@ -579,7 +575,7 @@ function cardsFor(
         service.zip === group.zips[0].zip,
     )
     .slice(0, MAX_CARDS)
-    .map((service) => service.category);
+    .map((service) => service.images[0]);
 }
 
 function zoomToZips(
@@ -681,7 +677,7 @@ function CardStack({
   label,
   selected,
 }: {
-  cards: string[];
+  cards: (string | undefined)[];
   label: string;
   selected: boolean;
 }) {
@@ -689,10 +685,10 @@ function CardStack({
 
   return (
     <div className="relative">
-      {back.map((category, index) => (
+      {back.map((image, index) => (
         <Card
           key={index}
-          category={category}
+          image={image}
           className={cn(
             "absolute inset-0",
             index === 0
@@ -703,7 +699,7 @@ function CardStack({
       ))}
 
       <Card
-        category={front}
+        image={front}
         label={label}
         selected={selected}
         className="relative"
@@ -713,12 +709,12 @@ function CardStack({
 }
 
 function Card({
-  category,
+  image,
   label,
   selected = false,
   className,
 }: {
-  category: string | undefined;
+  image: string | undefined;
   label?: string;
   selected?: boolean;
   className?: string;
@@ -731,11 +727,11 @@ function Card({
         className,
       )}
     >
-      {category ? (
-        <ServiceArt
-          category={category}
-          className="aspect-square w-full rounded-[12px] lg:rounded-[15px]"
-          iconClassName="size-7 lg:size-10"
+      {image ? (
+        <img
+          src={image}
+          alt=""
+          className="aspect-square w-full rounded-[12px] object-cover lg:rounded-[15px]"
         />
       ) : (
         <div className="aspect-square w-full rounded-[12px] bg-barter-read lg:rounded-[15px]" />

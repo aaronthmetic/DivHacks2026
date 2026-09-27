@@ -60,6 +60,23 @@ They're built on Base UI, not Radix. Where older shadcn examples use `asChild`, 
 
 Group chats need a dedicated Photon line (Business plan). On Free or Pro, a group request returns a 403 that says so. `/api/dev/photon` only works in development and returns 404 in production.
 
+## Booking requests by text
+
+Contact on a home page listing sends a booking request through Photon:
+- The requester's coins are held.
+- The provider gets a text with the details and a short code, and replies YES or NO.
+- Both people get texts about the outcome.
+
+Both people must turn on texts first, using the banner on the home page. That also proves they own their phone. The exact wording of every text is in `lib/booking-texts.ts`. Profile pages don't send requests yet, so Contact there opens the provider's profile.
+
+Setup, once per deployment:
+
+1. Deploy, then run `npm run photon:webhook -- https://<your-site>/api/photon/webhook`. It registers the webhook and prints its signing secret, which Photon shows only once.
+2. Set `SPECTRUM_WEBHOOK_SECRET` to that secret in `.env.local` and in Vercel's environment variables, next to `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET`.
+3. Each person signs up with the phone they text from and taps **Turn on texts** once.
+
+Replies reach only the deployed site, so test the full loop there. Photon's Pro plan allows 100 registered people.
+
 ## Relay (two-way messaging test)
 
 `npm run relay` passes texts between two people through Photon. Whatever one person texts their Photon number arrives for the other as "Name: message".

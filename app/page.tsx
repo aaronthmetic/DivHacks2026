@@ -8,12 +8,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
   const { user } = await requireSession();
   const { search } = await searchParams;
   const { db } = await getMongo();
-  const { listings, categories, balance } = await getExplorerData(db, user.id);
+  const { listings, categories, balance, textsEnabled } = await getExplorerData(db, user.id);
   return (
     <Explorer
       services={listings}
       categories={categories}
       balance={balance}
+      textsEnabled={textsEnabled}
       areas={zipAreas}
       notifications={notifications}
       initialZip="10027"

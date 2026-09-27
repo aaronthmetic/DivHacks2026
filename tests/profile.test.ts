@@ -24,11 +24,11 @@ after(async () => { await client?.close(); await server?.stop(); });
 
 test("profile DTOs protect privacy, filter listings, order bookings, and paginate reviews", async () => {
   const owner = new ObjectId(), visitor = new ObjectId();
+  const createdAt = new Date();
   await db.collection("user").insertMany([
-    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11 },
+    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11, textsEnabledAt: createdAt },
     { _id: visitor, name: "Visitor", email: "visitor@example.com" },
   ]);
-  const createdAt = new Date();
   await db.collection("service").insertMany(["active", "paused", "archived"].map(status => ({ userId: owner, status, title: status, description: "Details", creditRate: 250, pricingType: "fixed", deliveryMode: "remote", createdAt })));
   const now = Date.now();
   const makeBooking = (title: string, status: string, time?: number, requesterId = owner) => ({ serviceSnapshot: { title, description: "Booked details" }, status, requesterId, providerId: visitor, totalCredits: 250, ...(time === undefined ? {} : { scheduledAt: new Date(time) }) });
@@ -47,12 +47,25 @@ test("profile DTOs protect privacy, filter listings, order bookings, and paginat
   const second = (await getProfileData(db, owner.toHexString(), visitor.toHexString(), "2"))!;
   assert.equal(second.isOwner, false); assert.equal(second.bookings.length, 0);
   assert.deepEqual(second.listings.map(s => s.title), ["active"]);
+  assert.deepEqual([second.listings[0].pricingType, second.listings[0].creditRate, second.listings[0].providerTextsEnabled], ["fixed", 250, true]);
   assert.equal(second.reviews.length, 1); assert.equal(second.reviews[0].id, reviewIds[0].toHexString());
   assert.equal(JSON.stringify(second).includes("private@example.com"), false);
   assert.equal(JSON.stringify(second).includes("+12025550199"), false);
   assert.equal((await getProfileData(db, visitor.toHexString(), owner.toHexString(), "bad"))!.rating, 0);
   assert.equal(await getProfileData(db, "invalid", owner.toHexString(), "1"), null);
   assert.equal(await getProfileData(db, new ObjectId().toHexString(), owner.toHexString(), "1"), null);
+});
+
+test("reviews name the service that was booked", async () => {
+  const subject = new ObjectId(), author = new ObjectId(), bookingId = new ObjectId();
+  await db.collection("user").insertMany([{ _id: subject, name: "Subject", email: "subject@example.com" }, { _id: author, name: "Author", email: "author@example.com" }]);
+  await db.collection("booking").insertOne({ _id: bookingId, serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "completed", requesterId: author, providerId: subject, totalCredits: 100 });
+  await db.collection("review").insertMany([
+    { bookingId, subjectUserId: subject, authorId: author, rating: 5, comment: "Great", createdAt: new Date(2000) },
+    { bookingId: new ObjectId(), subjectUserId: subject, authorId: author, rating: 4, comment: "Good", createdAt: new Date(1000) },
+  ]);
+  const profile = (await getProfileData(db, subject.toHexString(), author.toHexString(), "1"))!;
+  assert.deepEqual(profile.reviews.map(review => review.serviceTitle), ["Guitar Lessons", undefined]);
 });
 
 test("fractional star fills and review page bounds", () => {

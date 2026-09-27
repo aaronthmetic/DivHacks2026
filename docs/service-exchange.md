@@ -32,17 +32,35 @@ Construct `createExchangeService(db, client)` with a database and its owning Mon
 - `transitionBooking(actorId, bookingId, action)`: enforce participant roles and booking transitions, with transactional refunds/payment.
 - `createReview(authorId, bookingId, rating, comment)`: derive the subject from the booking and enforce completed-booking participation.
 
-Actor IDs must come from authenticated server sessions, never a client-supplied identity. No booking HTTP endpoints or UI are included.
+Actor IDs must come from authenticated server sessions, never a client-supplied identity. Booking requests come through `POST /api/bookings`; see "Booking requests" below.
 
 ## Listing endpoint and map page
 
 `POST /api/services` publishes a listing for the signed-in user through `createService`. It takes a multipart form: `title`, `genreId`, `description`, `deliveryMode`, `zipCode` (5 digits; optional only for `remote`, and stored with country `US`), `coins` (a whole number, stored as `creditRate = coins × 100`), `per` (`hour` → `hourly`, `service` → `fixed`), `frequency` (`single` or `recurring`, with `interval` and `unit` when recurring), `availability` (a JSON array of `{ day, start, end }` with `HH:MM` 24-hour times, at most 1,000 characters), and up to five `images` (JPEG, PNG, or WebP). Like the profile endpoints it requires the configured `Origin`, a complete account, and the shared 20-per-minute mutation limit; it rejects unknown or repeated fields. The whole request is capped at 4 MiB, below Vercel's 4.5 MB function limit, and the form shrinks larger photos in the browser first. Photos are validated by signature and stored in GridFS with `{ ownerId, purpose: "service" }` metadata before the listing is created; if creation fails they are deleted. It returns `201 { success: true, id }` or `{ error: { code, message } }` with 400, 401, 403, 413, 429, or 503.
 
-The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens the provider's profile until messaging exists. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
+The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens a request form when both people have turned on texts. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
 
 The provider can accept or decline a requested booking. Either participant can cancel a requested or accepted booking. The provider marks an accepted booking delivered (`awaiting_confirmation`); the requester confirms to complete and pay. Repeating an authorized transition whose target is already current is a no-op. Invalid transitions fail without changing balances. Decline/cancel release held credits; completion removes the requester's hold and increases the provider's available balance. There is no automatic settlement or dispute workflow.
 
 Each requestBooking call creates a new booking; transport-level retries should not blindly repeat that call. Settlement and grants use deterministic ledger keys and state checks for idempotency. The domain exposes no ledger editing operation. Direct administrative database writes can bypass these application rules.
+
+## Booking requests
+
+- **Turning on texts:**
+  - Complete accounts are registered with Photon at the start of a session, after Google profile completion, and when someone taps "Turn on texts" (`POST /api/texts`, which returns `{ number }`).
+  - That registration stores `photonUserId` and `photonNumber` on the user.
+  - The first text barter receives from a phone sets `textsEnabledAt`.
+  - Changing the phone number unsets all three.
+- **`POST /api/bookings`:**
+  - Takes JSON `{ serviceId, window, hours, note }`.
+  - `window` is one of the listing's availability windows, or null for listings without any. `hours` is 1–8 for hourly listings. `note` is at most 300 characters.
+  - It needs the configured `Origin`, a complete account, the shared rate limit, and texts turned on for both people.
+  - It calls `requestBooking`, which stores `preferredWindow` and `note` and holds the total. It then texts the provider, and after that the requester.
+  - If the provider's text fails, the request is cancelled and the coins are returned (503).
+  - It returns `201 { success: true, id }`, or `{ error: { code, message } }` with 400, 401, 403, 404, 409, 429 or 503.
+- **Replies:**
+  - Photon posts incoming texts to `POST /api/photon/webhook`, which verifies `SPECTRUM_WEBHOOK_SECRET`, skips message IDs it has seen (the `photonMessage` collection, 7-day TTL), and answers 200. It then handles the text in `after()`.
+  - YES or NO, with the request code when several are waiting, accepts or declines through `transitionBooking`, and both people are texted.
 
 ## Setup and existing users
 
@@ -50,9 +68,9 @@ MongoDB must support multi-document transactions (a replica set or sharded clust
 
 Every new session (registration or sign-in) grants missing welcome credits to complete users after the authentication transaction commits. A failed grant is logged and never blocks authentication; the next session or profile update retries it. Google profile completion and its welcome grant commit together. Incomplete users receive no credits. Users who already have a welcome ledger entry skip the grant transaction entirely. Providers without a credit account (for example, accounts created before welcome grants existed) get an empty one when their service is first booked, so settlement can always pay them.
 
-**Before exposing booking or review endpoints:** welcome credits currently go to accounts whose email and phone are unverified, so scripted sign-ups could farm credits and reviews. Add verification or another abuse control first. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
+**Verification:** requests require both people to have turned on texts, which means texting barter from their own phone and proves they own the number. Welcome credits still go to accounts whose email and phone are unverified, so add verification or another abuse control before exposing review endpoints. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
-Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Messaging, distance search, cash conversion, platform fees, and moderation remain future additions.
+Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Free-text messaging between people, distance search, cash conversion, platform fees, and moderation remain future additions.
 
 ## Verification
 

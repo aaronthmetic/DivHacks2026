@@ -3,8 +3,15 @@ import { ObjectId } from "mongodb";
 
 import { getMongo } from "@/lib/mongodb";
 import { getSession } from "@/lib/session";
-import { addReview } from "@/lib/exchange-actions";
-import { exchangeCollections } from "@/lib/exchange-schema";
+
+import {
+  addReview,
+  appendReviewToUser,
+} from "@/lib/exchange-actions";
+
+import {
+  exchangeCollections,
+} from "@/lib/exchange-schema";
 
 export async function POST(request: Request) {
   try {
@@ -12,46 +19,88 @@ export async function POST(request: Request) {
 
     if (!session?.user?.id) {
       return NextResponse.json(
-        { error: "You must be signed in to leave a review." },
-        { status: 401 },
+        {
+          error: "You must be signed in to leave a review.",
+        },
+        {
+          status: 401,
+        },
       );
     }
 
     const body = await request.json();
 
-    const bookingId = String(body.bookingId ?? "");
+    const bookingId = body.bookingId;
     const rating = Number(body.rating);
-    const comment = String(body.comment ?? "").trim();
+    const comment =
+      typeof body.comment === "string"
+        ? body.comment.trim()
+        : "";
 
-    // ---------------------------------------------------------
-    // Validate input
-    // ---------------------------------------------------------
-
-    if (!ObjectId.isValid(bookingId)) {
+    /*
+     * Validate request.
+     */
+    if (
+      typeof bookingId !== "string" ||
+      !ObjectId.isValid(bookingId)
+    ) {
       return NextResponse.json(
-        { error: "Invalid booking ID." },
-        { status: 400 },
+        {
+          error: "Invalid booking ID.",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    if (
+      !Number.isInteger(rating) ||
+      rating < 1 ||
+      rating > 5
+    ) {
       return NextResponse.json(
-        { error: "Rating must be between 1 and 5." },
-        { status: 400 },
+        {
+          error:
+            "Rating must be a whole number from 1 to 5.",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
     if (!comment) {
       return NextResponse.json(
-        { error: "Review comment is required." },
-        { status: 400 },
+        {
+          error: "A review comment is required.",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
     if (comment.length > 2000) {
       return NextResponse.json(
-        { error: "Review comment cannot exceed 2000 characters." },
-        { status: 400 },
+        {
+          error:
+            "Review comments cannot exceed 2000 characters.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (!ObjectId.isValid(session.user.id)) {
+      return NextResponse.json(
+        {
+          error: "Invalid user session.",
+        },
+        {
+          status: 401,
+        },
       );
     }
 
@@ -62,68 +111,86 @@ export async function POST(request: Request) {
       reviews,
     } = exchangeCollections(db);
 
-    const bookingObjectId = new ObjectId(bookingId);
-    const authorId = new ObjectId(session.user.id);
+    const bookingObjectId =
+      new ObjectId(bookingId);
 
-    // ---------------------------------------------------------
-    // Load booking
-    // ---------------------------------------------------------
+    const authorId =
+      new ObjectId(session.user.id);
 
+    /*
+     * Find booking.
+     */
     const booking = await bookings.findOne({
       _id: bookingObjectId,
     });
 
     if (!booking) {
       return NextResponse.json(
-        { error: "Booking not found." },
-        { status: 404 },
+        {
+          error: "Booking not found.",
+        },
+        {
+          status: 404,
+        },
       );
     }
 
-    // Only completed bookings can be reviewed.
+    /*
+     * Reviews are only allowed after the booking
+     * has been completed.
+     */
     if (booking.status !== "completed") {
       return NextResponse.json(
         {
           error:
             "This booking must be completed before it can be reviewed.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    // ---------------------------------------------------------
-    // Make sure logged-in user participated in booking
-    // ---------------------------------------------------------
-
     const isRequester =
-      booking.requesterId.toString() === authorId.toString();
+      booking.requesterId.equals(authorId);
 
     const isProvider =
-      booking.providerId.toString() === authorId.toString();
+      booking.providerId.equals(authorId);
 
+    /*
+     * Only people involved in the booking may review it.
+     */
     if (!isRequester && !isProvider) {
       return NextResponse.json(
         {
           error:
-            "You are not allowed to review this booking.",
+            "You are not part of this booking.",
         },
-        { status: 403 },
+        {
+          status: 403,
+        },
       );
     }
 
-    // The review is about the OTHER user in the booking.
+    /*
+     * Determine the person being reviewed.
+     *
+     * Requester reviews provider.
+     * Provider reviews requester.
+     */
     const subjectUserId = isRequester
       ? booking.providerId
       : booking.requesterId;
 
-    // ---------------------------------------------------------
-    // Prevent duplicate reviews
-    // ---------------------------------------------------------
-
-    const existingReview = await reviews.findOne({
-      bookingId: bookingObjectId,
-      authorId,
-    });
+    /*
+     * Prevent more than one review from the same
+     * person for the same booking.
+     */
+    const existingReview =
+      await reviews.findOne({
+        bookingId: bookingObjectId,
+        authorId,
+      });
 
     if (existingReview) {
       return NextResponse.json(
@@ -131,59 +198,71 @@ export async function POST(request: Request) {
           error:
             "You have already reviewed this booking.",
         },
-        { status: 409 },
+        {
+          status: 409,
+        },
       );
     }
 
-    // ---------------------------------------------------------
-    // Create Review using your Review schema/helper
-    //
-    // Review:
-    // {
-    //   _id,
-    //   bookingId,
-    //   authorId,
-    //   subjectUserId,
-    //   rating,
-    //   comment,
-    //   createdAt
-    // }
-    // ---------------------------------------------------------
-
+    /*
+     * Create review using your existing
+     * exchange-actions helper.
+     */
     const review = await addReview(db, {
-      bookingId: bookingObjectId.toString(),
-      authorId: authorId.toString(),
-      subjectUserId: subjectUserId.toString(),
+      bookingId: bookingObjectId,
+      authorId,
+      subjectUserId,
       rating,
       comment,
     });
 
-    return NextResponse.json(
-      {
-        success: true,
-        review: {
-          id: review._id.toString(),
-          bookingId: review.bookingId.toString(),
-          authorId: review.authorId.toString(),
-          subjectUserId: review.subjectUserId.toString(),
-          rating: review.rating,
-          comment: review.comment,
-          createdAt: review.createdAt,
-        },
-      },
-      { status: 201 },
+    /*
+     * Update the reviewed user's:
+     *
+     * rating
+     * numberOfReviews
+     * reviews[]
+     */
+    await appendReviewToUser(
+      db,
+      subjectUserId,
+      review._id,
+      review.rating,
     );
-  } catch (error) {
-    console.error("Failed to create review:", error);
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to create review.",
+        review: {
+          id: review._id.toHexString(),
+          bookingId:
+            review.bookingId.toHexString(),
+          authorId:
+            review.authorId.toHexString(),
+          subjectUserId:
+            review.subjectUserId.toHexString(),
+          rating: review.rating,
+          comment: review.comment,
+          createdAt:
+            review.createdAt.toISOString(),
+        },
       },
-      { status: 500 },
+      {
+        status: 201,
+      },
+    );
+  } catch (error) {
+    console.error(
+      "POST /api/reviews failed:",
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        error: "Failed to submit review.",
+      },
+      {
+        status: 500,
+      },
     );
   }
 }

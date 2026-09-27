@@ -165,10 +165,15 @@ test("the explorer lists active listings with provider ratings and labels", asyn
   assert.deepEqual(data.listings.find((listing) => listing.id === shown._id.toHexString()), {
     id: shown._id.toHexString(), title: "Laptop setup", description: "Homework and test prep.", category: "Tech", images: [],
     rating: 4.5, ratingCount: 2, location: "Morningside Heights", zip: "10027",
-    tags: ["12 coins / service", "In person", "One time"], availability: storedAvailability,
+    tags: ["12 coins / service", "In person", "One time"], availability: storedAvailability, pricingType: "fixed", creditRate: 1200, providerTextsEnabled: false,
     providerId: provider.id.toHexString(), providerName: "List Owner", own: false,
   });
   assert.equal(data.balance, 10);
+  assert.equal(data.textsEnabled, false);
+  await db.collection("user").updateMany({ _id: { $in: [viewer.id, provider.id] } }, { $set: { textsEnabledAt: new Date() } });
+  const texting = await getExplorerData(db, viewer.id.toHexString());
+  assert.equal(texting.textsEnabled, true);
+  assert.equal(texting.listings.find((listing) => listing.id === shown._id.toHexString())?.providerTextsEnabled, true);
   assert.ok(data.categories.some((category) => category.name === "Tech"));
   assert.ok(!data.categories.some((category) => category.name === "Retired"));
   const own = await getExplorerData(db, provider.id.toHexString());
@@ -190,7 +195,7 @@ test("owners can edit and archive listings while booking snapshots and photos su
   const original = (await c.services.findOne({ _id: new ObjectId(id) }))!;
   const domain = createExchangeService(db, client);
   await domain.grantWelcome(requester.id);
-  const booking = await domain.requestBooking(requester.id, original._id, { durationMinutes: 60 });
+  const booking = await domain.requestBooking(requester.id, original._id, { durationMinutes: 60, preferredWindow: storedAvailability[0] });
   await c.services.updateOne({ _id: original._id }, { $set: { status: "paused" } });
   const updated = await modify(owner.cookie, id, listingForm({ ...baseFields(genre),
     title: "Updated title", description: "New description", deliveryMode: "remote", zipCode: "", coins: "8", per: "service",
@@ -222,7 +227,7 @@ test("owners can edit and archive listings while booking snapshots and photos su
   assert.ok(!(await getProfileData(db, owner.id.toHexString(), owner.id.toHexString(), "1"))!.listings.some(card => card.id === id));
   assert.equal((await modify(owner.cookie, id)).status, 404);
   assert.equal((await modify(owner.cookie, id, listingForm({ ...baseFields(genre), retainedImageIds: "[]" }))).status, 404);
-  await assert.rejects(domain.requestBooking(requester.id, original._id, { durationMinutes: 60 }));
+  await assert.rejects(domain.requestBooking(requester.id, original._id, { durationMinutes: 60, preferredWindow: { day: 2, start: 540, end: 600 } }), /Active service not found/);
 });
 
 test("listing mutations reject unauthorized and invalid requests without changing stored data", async () => {

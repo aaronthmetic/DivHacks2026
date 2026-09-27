@@ -37,6 +37,8 @@ export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;
   serviceSnapshot: ServiceSnapshot;
   durationMinutes?: number; totalCredits: number; scheduledAt?: Date;
+  /** The listing window the requester picked; absent for listings without windows. */
+  preferredWindow?: AvailabilityWindow; note?: string;
   status: "requested" | "accepted" | "awaiting_confirmation" | "completed" | "declined" | "cancelled";
   providerCompletedAt?: Date; requesterConfirmedAt?: Date; createdAt: Date; updatedAt: Date;
 }

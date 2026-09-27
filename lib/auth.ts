@@ -2,6 +2,7 @@ import "server-only";
 import { AuthConfigurationError } from "./auth-errors";
 import { createAuth, type Auth } from "./auth-config";
 import { getMongo } from "./mongodb";
+import { photonConfigured, registerPhotonUser } from "./photon-users";
 
 // A blank variable (e.g. `VAR=` or an unset compose `${VAR}`) must mean "use the default", not "no entries".
 function envList(value: string | undefined) {
@@ -18,7 +19,7 @@ export function getAuth() {
       if (!baseURL || !secret || secret.length < 32) throw new AuthConfigurationError("Set BETTER_AUTH_URL and a BETTER_AUTH_SECRET of at least 32 characters.");
       if (process.env.NODE_ENV === "production" && new URL(baseURL).protocol !== "https:") throw new AuthConfigurationError("Production authentication requires an HTTPS BETTER_AUTH_URL, including when using npm run start locally.");
       const { db, client } = await getMongo();
-      return createAuth(db, client, { baseURL, secret, ipAddressHeaders: envList(process.env.AUTH_IP_ADDRESS_HEADERS), trustedProxies: envList(process.env.AUTH_TRUSTED_PROXIES), googleClientId: process.env.GOOGLE_CLIENT_ID, googleClientSecret: process.env.GOOGLE_CLIENT_SECRET });
+      return createAuth(db, client, { baseURL, secret, ipAddressHeaders: envList(process.env.AUTH_IP_ADDRESS_HEADERS), trustedProxies: envList(process.env.AUTH_TRUSTED_PROXIES), googleClientId: process.env.GOOGLE_CLIENT_ID, googleClientSecret: process.env.GOOGLE_CLIENT_SECRET, registerPhoton: photonConfigured() ? registerPhotonUser : undefined });
     })().catch((error) => { authPromise = undefined; throw error; });
   }
   return authPromise;

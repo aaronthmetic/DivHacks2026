@@ -65,7 +65,7 @@ Group chats need a dedicated Photon line (Business plan). On Free or Pro, a grou
 Contact on a home page listing sends a booking request through Photon:
 - The requester's coins are held.
 - The provider gets a text with the details and a short code, and replies YES or NO.
-- Both people get texts about the outcome.
+- Both people get texts about the outcome — accepting also asks the provider for a time and place, so the two can coordinate next (below).
 
 Both people must turn on texts first, using the banner on the home page. That also proves they own their phone. The exact wording of every text is in `lib/booking-texts.ts`. Profile pages don't send requests yet, so Contact there opens the provider's profile.
 
@@ -76,6 +76,26 @@ Setup, once per deployment:
 3. Each person signs up with the phone they text from and taps **Turn on texts** once.
 
 Replies reach only the deployed site, so test the full loop there. Photon's Pro plan allows 100 registered people.
+
+## Booking coordination by text
+
+Once a provider accepts, the same Photon thread helps both people agree on a time and place. An AI assistant — Gemini or Grok, through their OpenAI-compatible chat API — reads the booking's details and the person's own thread with barter, then:
+
+- Asks the provider for a time and place right away, within the requester's preferred window when there is one (or how they'll meet, for a remote listing).
+- Turns a reply like "Sat 11 AM at Butler Library" into a proposal; the other person can reply OK to confirm it, or suggest a different time instead.
+- Relays short notes between the two people, and answers questions about the booking from its details.
+- When the sender has more than one active booking and it isn't clear which one a text is about, the assistant asks, naming each by its code.
+
+Only proposals, confirmations and notes ever reach the other person, and the assistant never sees either person's phone number or email. All times are New York time. The exact wording of every text is still in `lib/booking-texts.ts`; the full design is in `docs/superpowers/specs/2026-09-27-photon-coordination-design.md`.
+
+A request the provider never answers expires 48 hours after it's sent: the held coins return to the requester, and both people are texted. barter checks for stale requests whenever it handles an incoming text, and a daily Vercel Cron (`GET /api/cron/expire-requests`, 13:00 UTC) catches the rest. On the Hobby plan, Vercel runs crons once a day, and only against production.
+
+Without `LLM_API_KEY` set, texts are still relayed as plain notes — no suggestions, no answers — and the sender just gets a short confirmation that it was sent. An assistant error or timeout gets an apology text instead. More than 30 texts from one person in the last hour pause the assistant until they slow down.
+
+Setup, alongside the Photon setup above:
+
+1. Add `LLM_API_KEY` to `.env.local` and to Vercel — an API key for [Gemini](https://ai.google.dev/) (the default) or [Grok](https://x.ai/api). Gemini's endpoint (`https://generativelanguage.googleapis.com/v1beta/openai/`) and model (`gemini-3.5-flash-lite`) need no further configuration; for Grok, also set `LLM_BASE_URL=https://api.x.ai/v1` and `LLM_MODEL=grok-4.3`.
+2. Add `CRON_SECRET` to Vercel's environment variables — any random string. Vercel sends it as `Authorization: Bearer <value>` when it calls the cron route.
 
 ## Relay (two-way messaging test)
 

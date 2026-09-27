@@ -7,7 +7,7 @@
 | `user` | Existing authentication fields plus optional `bio`, `zipCode`, `countryCode`; server-managed `rating`, `numberOfReviews`, and `reviews`. |
 | `genre` | Name, unique slug, description, active flag. Categories are managed server-side. |
 | `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, frequency, weekly availability, status, timestamps. |
-| `booking` | Service and participants, immutable category, description, delivery/location, image-ID and pricing snapshot, agreed duration/total, optional schedule, status and completion timestamps. |
+| `booking` | Service and participants, immutable category, description, delivery/location, image-ID and pricing snapshot, agreed duration/total, optional schedule and place, a pending time/place proposal, status and completion timestamps. |
 | `creditAccount` | One account per user; available and held balances. |
 | `creditTransaction` | Append-only balance deltas, account/booking references, operation type, unique idempotency key, creation time. |
 | `review` | Completed booking, author, other participant, rating from 1–5, comment. One per author per booking. |
@@ -61,6 +61,19 @@ Each requestBooking call creates a new booking; transport-level retries should n
 - **Replies:**
   - Photon posts incoming texts to `POST /api/photon/webhook`, which verifies `SPECTRUM_WEBHOOK_SECRET`, skips message IDs it has seen (the `photonMessage` collection, 7-day TTL), and answers 200. It then handles the text in `after()`.
   - YES or NO, with the request code when several are waiting, accepts or declines through `transitionBooking`, and both people are texted.
+  - Anything else reaches the booking coordination assistant instead, when the sender has an accepted booking; see "Booking coordination" below.
+
+## Booking coordination
+
+Once a booking is `accepted`, the same thread lets both people agree on a time and place: an LLM assistant (`lib/coordinator.ts`, using `lib/llm.ts`'s OpenAI-compatible chat client) offers tools backed by `lib/coordination.ts` to propose a time, confirm one, or relay a short note — the model can't move coins, accept, decline or cancel a booking directly. `propose` saves a `BookingProposal`; `confirm` copies it into the booking's `scheduledAt` and `place` and clears it.
+
+- `booking` gains `proposal?: { startsAt, place?, byUserId, createdAt }` (the latest suggestion nobody has confirmed) and `place?: string` (the agreed place, 1–120 characters). `scheduledAt`, unused by the live app until now, is set the moment a proposal is confirmed.
+- `textMessage` is a new collection holding each phone's thread with barter, for the assistant's context: `{ phoneNumber, role: "person" | "barter", text, createdAt }`. A TTL index expires entries after 14 days (`expireAfterSeconds: 1209600`), and `{ phoneNumber: 1, createdAt: -1 }` serves the lookups.
+- `booking` also gets `{ status: 1, createdAt: 1 }`, for the expiry sweep below.
+
+**Routing incoming texts**, right after Part A's unknown-sender and first-text checks: barter expires stale requests (below), logs the text, then routes it — a YES/NO reply goes to Part A's accept/decline handling above when it carries a request code or the sender has requests waiting as a provider; otherwise, when the sender is a party to any `accepted` booking, it goes to the coordination assistant; otherwise it falls back to Part A's replies (help text, or "no requests waiting"). A bare "OK" or "yes" only reaches Part A when a request is genuinely waiting for it.
+
+**Expiry**: `GET /api/cron/expire-requests` requires `Authorization: Bearer <CRON_SECRET>` (which Vercel sends automatically to its cron routes) and cancels `requested` bookings older than 48 hours — as the requester, so held coins are released — texting both people; it returns the number expired. `vercel.json` schedules it daily, and barter also runs the same sweep on every handled text, so delivery is best effort and safe to run twice.
 
 ## Setup and existing users
 
@@ -74,7 +87,7 @@ Genres are managed server-side. The app inserts eight default categories (Tutori
 
 ## Verification
 
-`npm test` uses temporary MongoDB replica sets and covers onboarding, pricing, reference/location validation, immutable snapshots, concurrent spending, refunds, settlement retries, transaction rollback, and review ownership. `npm run typecheck` and `npm run lint` check static correctness.
+`npm test` uses temporary MongoDB replica sets and covers onboarding, pricing, reference/location validation, immutable snapshots, concurrent spending, refunds, settlement retries, transaction rollback, review ownership, booking coordination and its LLM client, the text log, and request expiry. `npm run typecheck` and `npm run lint` check static correctness.
 
 ## User review fields
 

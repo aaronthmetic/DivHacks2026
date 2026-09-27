@@ -18,6 +18,7 @@ import {
 } from "@vis.gl/react-google-maps";
 
 import type { Service, ZipArea } from "@/lib/barter/data";
+import { ServiceArt } from "./results";
 import boundaries from "@/lib/barter/zip-boundaries.json";
 import { cn } from "@/lib/utils";
 
@@ -179,6 +180,11 @@ function ZipLayer({
 
   const [hoveredZips, setHoveredZips] = useState<string[]>([]);
 
+  const populatedAreas = useMemo(() => {
+    const populatedZips = new Set(services.map((service) => service.zip));
+    return areas.filter((area) => populatedZips.has(area.zip));
+  }, [areas, services]);
+
   useZipOutlines(map, {
     selectedZip,
     hoveredZips,
@@ -192,11 +198,11 @@ function ZipLayer({
       zoom === undefined
         ? []
         : groupNearbyZips(
-            areas,
+            populatedAreas,
             zoom,
             phone ? STACK.phone : STACK.desktop,
           ),
-    [areas, zoom, phone],
+    [populatedAreas, zoom, phone],
   );
 
   return (
@@ -553,29 +559,25 @@ function average(values: number[]) {
   );
 }
 
-/**
- * A ZIP shows its services.
- * A merged stack shows one card per ZIP.
- */
-function cardsFor(
-  group: Group,
-  services: Service[],
-): (string | undefined)[] {
-  if (group.zips.length > 1) {
-    return group.zips
-      .slice(0, MAX_CARDS)
-      .map((area) =>
-        services.find((service) => service.zip === area.zip)?.images[0],
-      );
-  }
+type MapCard = { image: string | undefined; category: string };
 
-  return services
-    .filter(
-      (service) =>
-        service.zip === group.zips[0].zip,
-    )
-    .slice(0, MAX_CARDS)
-    .map((service) => service.images[0]);
+/** A merged stack shows one card per ZIP, preferring uploaded photos. */
+function cardsFor(group: Group, services: Service[]): MapCard[] {
+  const cardsForZip = (zip: string) => services
+    .filter((service) => service.zip === zip)
+    .map((service) => ({
+      image: service.images.find((image) => image.trim().length > 0),
+      category: service.category,
+    }))
+    .sort((a, b) => Number(Boolean(b.image)) - Number(Boolean(a.image)));
+
+  const cards = group.zips.length > 1
+    ? group.zips.flatMap((area) => cardsForZip(area.zip).slice(0, 1))
+    : cardsForZip(group.zips[0].zip);
+
+  return cards
+    .sort((a, b) => Number(Boolean(b.image)) - Number(Boolean(a.image)))
+    .slice(0, MAX_CARDS);
 }
 
 function zoomToZips(
@@ -677,18 +679,20 @@ function CardStack({
   label,
   selected,
 }: {
-  cards: (string | undefined)[];
+  cards: MapCard[];
   label: string;
   selected: boolean;
 }) {
   const [front, ...back] = cards;
+  if (!front) return null;
 
   return (
     <div className="relative">
-      {back.map((image, index) => (
+      {back.map((card, index) => (
         <Card
           key={index}
-          image={image}
+          image={card.image}
+          category={card.category}
           className={cn(
             "absolute inset-0",
             index === 0
@@ -699,7 +703,8 @@ function CardStack({
       ))}
 
       <Card
-        image={front}
+        image={front.image}
+        category={front.category}
         label={label}
         selected={selected}
         className="relative"
@@ -710,11 +715,13 @@ function CardStack({
 
 function Card({
   image,
+  category,
   label,
   selected = false,
   className,
 }: {
   image: string | undefined;
+  category: string;
   label?: string;
   selected?: boolean;
   className?: string;
@@ -734,7 +741,11 @@ function Card({
           className="aspect-square w-full rounded-[12px] object-cover lg:rounded-[15px]"
         />
       ) : (
-        <div className="aspect-square w-full rounded-[12px] bg-barter-read lg:rounded-[15px]" />
+        <ServiceArt
+          category={category}
+          className="aspect-square w-full rounded-[12px] lg:rounded-[15px]"
+          iconClassName="size-8 lg:size-10"
+        />
       )}
 
       <p className="flex h-5 items-center justify-center text-xs text-black lg:h-6 lg:text-[13px]">

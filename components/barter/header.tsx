@@ -1,6 +1,8 @@
 "use client";
 
 import Form from "next/form";
+import { Popover } from "@base-ui/react/popover";
+import { LogoutButton } from "@/components/auth/forms";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -499,18 +501,33 @@ export function Header({
           </div>
         </div>
 
-        <Link
-          href="/profile"
-          aria-label="Profile"
-          className="text-white"
-          onClick={() =>
-            setNotificationsOpen(
-              false,
-            )
+        <Popover.Root onOpenChange={(open) => {
+          if (open) {
+            setNotificationsOpen(false);
+            if (openPanel) onToggle(openPanel);
           }
-        >
-          <ProfileIcon className="size-[46px]" />
-        </Link>
+        }}>
+          <Popover.Trigger
+            aria-label="Profile options"
+            className="rounded-full text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-barter-blue"
+          >
+            <ProfileIcon className="size-[46px]" />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Positioner side="bottom" align="end" sideOffset={12} className="z-50">
+              <Popover.Popup className="w-56 max-w-[calc(100vw-2rem)] rounded-xl bg-white p-2 text-barter-ink shadow-[0_8px_30px_rgba(0,0,0,0.22)] outline-none">
+                <Popover.Title className="sr-only">Profile options</Popover.Title>
+                <Link
+                  href="/profile"
+                  className="block rounded-lg px-4 py-3 text-sm font-semibold hover:bg-barter-read focus-visible:outline-2 focus-visible:outline-barter-blue"
+                >
+                  View profile
+                </Link>
+                <LogoutButton className="w-full rounded-lg px-4 py-3 text-left text-sm font-semibold hover:bg-barter-read focus-visible:outline-2 focus-visible:outline-barter-blue disabled:opacity-50" />
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
     </header>
   );

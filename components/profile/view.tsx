@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { CreateListingModal } from "@/components/barter/create-listing";
 import { useState, useTransition } from "react";
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Star,
@@ -14,7 +13,10 @@ import type { ProfileCard, ProfileData } from "@/lib/profile-data";
 import { DEFAULT_AVATAR, starFill } from "@/lib/profile-display";
 import { ListingModal } from "@/components/barter/listing-modal";
 import type { CategoryOption, Service } from "@/lib/barter/data";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { ProfileShell } from "./shell";
+import { LogoutButton } from "@/components/auth/forms";
+import { profileCard, profilePrimaryButton, profileSecondaryButton } from "./styles";
 
 export function Avatar({
   src,
@@ -26,8 +28,8 @@ export function Avatar({
   large?: boolean;
 }) {
   // GridFS and OAuth images have dynamic origins; use the browser's image loader.
-  // eslint-disable-next-line @next/next/no-img-element
   return (
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src || DEFAULT_AVATAR}
       alt={`${name}'s profile picture`}
@@ -84,7 +86,7 @@ export function Stars({
       {count !== undefined && (
         <span
           aria-hidden="true"
-          className="text-sm text-muted-foreground"
+          className="text-sm text-barter-gray"
         >
           ({count})
         </span>
@@ -222,10 +224,10 @@ function Carousel({
 
   return (
     <section
-      className="min-w-0 rounded-2xl border bg-white p-6 shadow-sm"
+      className={`flex min-w-0 flex-col ${profileCard}`}
       aria-label={title}
     >
-      <h2 className="mb-4 text-xl font-semibold text-barter-navy">
+      <h2 className="mb-4 text-xl font-bold text-black">
         {title}
       </h2>
 
@@ -233,7 +235,7 @@ function Carousel({
         <>
           <button
             onClick={() => setSelectedId(card.id)}
-            className="w-full space-y-3 rounded-xl border p-4 text-left transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+            className="w-full flex-1 content-start space-y-3 rounded-xl border border-barter-line p-4 text-left transition hover:bg-barter-read focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-barter-blue"
             aria-label={`View ${card.title} details`}
           >
             <h3 className="text-lg font-semibold">
@@ -249,7 +251,7 @@ function Carousel({
             {card.lines.map((line, i) => (
               <p
                 key={i}
-                className="text-sm capitalize text-muted-foreground"
+                className="text-sm capitalize text-barter-gray"
               >
                 {line}
               </p>
@@ -261,9 +263,13 @@ function Carousel({
           </button>
 
           <div className="mt-4 flex items-center justify-between gap-3">
-            <Button
-              variant="outline"
-              size="icon"
+            <button
+              type="button"
+              className={buttonVariants({
+                variant: "outline",
+                size: "icon",
+                className: "size-10 border-barter-line text-barter-navy hover:bg-barter-read focus-visible:ring-barter-blue/30",
+              })}
               aria-label={`Previous ${title.toLowerCase()}`}
               disabled={index === 0}
               onClick={() =>
@@ -276,7 +282,7 @@ function Carousel({
               }
             >
               <ChevronLeft />
-            </Button>
+            </button>
 
             <span
               aria-live="polite"
@@ -286,9 +292,13 @@ function Carousel({
               {cards.length}
             </span>
 
-            <Button
-              variant="outline"
-              size="icon"
+            <button
+              type="button"
+              className={buttonVariants({
+                variant: "outline",
+                size: "icon",
+                className: "size-10 border-barter-line text-barter-navy hover:bg-barter-read focus-visible:ring-barter-blue/30",
+              })}
               aria-label={`Next ${title.toLowerCase()}`}
               disabled={index >= cards.length - 1}
               onClick={() =>
@@ -296,7 +306,7 @@ function Carousel({
               }
             >
               <ChevronRight />
-            </Button>
+            </button>
           </div>
 
           {listings ? (
@@ -369,7 +379,7 @@ function Carousel({
           )}
         </>
       ) : (
-        <p className="py-12 text-center text-muted-foreground">
+        <p className="flex flex-1 items-center justify-center py-12 text-center text-barter-gray">
           {listings
             ? "No listings to show yet."
             : "No upcoming or pending bookings."}
@@ -387,17 +397,8 @@ export function ProfileView({
   basePath: string;
 }) {
   return (
-    <main className="min-h-screen bg-muted/30 px-4 py-8 sm:px-8">
-      <div className="mx-auto max-w-5xl">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm text-barter-navy"
-        >
-          <ArrowLeft className="size-4" />
-          Back to barter
-        </Link>
-
-        <header className="flex flex-col items-center gap-4 py-10 text-center">
+    <ProfileShell>
+        <header className="mb-8 flex flex-col items-center gap-4 py-6 text-center">
           <Avatar
             src={profile.image}
             name={profile.name}
@@ -414,17 +415,20 @@ export function ProfileView({
           />
 
           {profile.isOwner && (
+            <div className="flex flex-wrap items-start justify-center gap-3">
             <Link
               href="/profile/edit"
-              className="rounded-lg bg-barter-navy px-6 py-3 font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-4"
+              className={profilePrimaryButton}
             >
               Edit profile
             </Link>
+            <LogoutButton className={profileSecondaryButton} />
+            </div>
           )}
         </header>
 
         <div
-          className={`grid items-start gap-6 ${
+          className={`grid items-stretch gap-6 ${
             profile.isOwner
               ? "md:grid-cols-2"
               : ""
@@ -449,18 +453,18 @@ export function ProfileView({
         </div>
 
         <section
-          className="mt-8 rounded-2xl border bg-white p-6"
+          className={`mt-8 ${profileCard}`}
           aria-labelledby="reviews-heading"
         >
           <h2
             id="reviews-heading"
-            className="text-xl font-semibold text-barter-navy"
+            className="text-xl font-bold text-black"
           >
             Reviews
           </h2>
 
           {profile.reviews.length ? (
-            <ul className="divide-y">
+            <ul className="divide-y divide-barter-line">
               {profile.reviews.map(
                 (review) => (
                   <li
@@ -479,7 +483,7 @@ export function ProfileView({
 
                       <Link
                         href={`/profile/${review.authorId}`}
-                        className="font-medium underline"
+                        className="font-medium text-barter-navy underline decoration-barter-navy/30 underline-offset-4 hover:decoration-barter-navy"
                       >
                         {
                           review.authorName
@@ -490,7 +494,7 @@ export function ProfileView({
                         dateTime={
                           review.date
                         }
-                        className="ml-auto text-sm text-muted-foreground"
+                        className="ml-auto text-sm text-barter-gray"
                       >
                         {review.date}
                       </time>
@@ -498,7 +502,7 @@ export function ProfileView({
 
                     {/* Service this review came from */}
                     <div className="text-sm">
-                      <span className="text-muted-foreground">
+                      <span className="text-barter-gray">
                         Service:
                       </span>{" "}
                       <span className="font-medium text-barter-navy">
@@ -523,7 +527,7 @@ export function ProfileView({
               )}
             </ul>
           ) : (
-            <p className="py-6 text-muted-foreground">
+            <p className="py-6 text-barter-gray">
               No reviews yet.
             </p>
           )}
@@ -546,7 +550,7 @@ export function ProfileView({
                   Previous
                 </Link>
               ) : (
-                <span className="text-muted-foreground">
+                <span className="text-barter-gray">
                   Previous
                 </span>
               )}
@@ -574,14 +578,13 @@ export function ProfileView({
                   Next
                 </Link>
               ) : (
-                <span className="text-muted-foreground">
+                <span className="text-barter-gray">
                   Next
                 </span>
               )}
             </nav>
           )}
         </section>
-      </div>
-    </main>
+    </ProfileShell>
   );
 }

@@ -7,6 +7,7 @@ import type { CountryCode } from "libphonenumber-js";
 import countryOptions from "@/lib/country-options.json";
 import { normalizeEmail, normalizePhone } from "@/lib/auth-validation";
 import { cn } from "@/lib/utils";
+import { profileInput, profilePrimaryButton } from "@/components/profile/styles";
 
 // Control styles from the auth mockups: 3px-bordered fields and buttons, with text centered on
 // phones and left-aligned on desktop.
@@ -170,20 +171,20 @@ export function ProfileForm({ firstName, lastName, complete = false }: { firstNa
     {saved && <p role="status" className="text-center text-sm font-bold text-barter-gray lg:text-left">Your profile has been saved.</p>}
     <fieldset disabled={busy} className={stack}>
       <div className={nameRow}>
-        <Field label="First Name" name="firstName" autoComplete="given-name" required maxLength={100} defaultValue={firstName} />
-        <Field label="Last Name" name="lastName" autoComplete="family-name" required maxLength={100} defaultValue={lastName} />
+        <Field label="First Name" className={complete ? field : profileInput} name="firstName" autoComplete="given-name" required maxLength={100} defaultValue={firstName} />
+        <Field label="Last Name" className={complete ? field : profileInput} name="lastName" autoComplete="family-name" required maxLength={100} defaultValue={lastName} />
       </div>
       {complete && <><CountryField country={country} setCountry={setCountry} /><Field label="Phone number" name="phoneNumber" type="tel" autoComplete="tel" required maxLength={40} /></>}
-      <button type="submit" className={primaryButton}>{busy ? "Saving…" : complete ? "Confirm and continue" : "Save changes"}</button>
+      <button type="submit" className={complete ? primaryButton : profilePrimaryButton}>{busy ? "Saving…" : complete ? "Confirm and continue" : "Save changes"}</button>
     </fieldset>
   </form>;
 }
 
-export function LogoutButton() {
+export function LogoutButton({ className }: { className?: string } = {}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
-  return <div className="space-y-3"><Message error={error} /><button type="button" className={cn(outlineButton, "justify-center")} disabled={busy} onClick={async () => {
+  return <div className="space-y-3"><Message error={error} /><button type="button" className={className ?? cn(outlineButton, "justify-center")} disabled={busy} onClick={async () => {
     setBusy(true); setError("");
     try { await api("/api/auth/sign-out", {}); router.replace("/login"); router.refresh(); }
     catch { setError("We could not log you out. Please try again."); setBusy(false); }

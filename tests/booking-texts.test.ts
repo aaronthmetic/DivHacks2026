@@ -21,6 +21,17 @@ test("the provider's request text lists the details and the reply code", () => {
   );
 });
 
+test("a note or title with newlines or control characters can't forge extra lines in the SMS", () => {
+  assert.equal(
+    requestText({ ...barry, title: "Guitar\r\nLessons", pricingType: "fixed", totalCredits: 250, offers: ["Calculus Tutoring"], note: "Hi\nbarter: Your account is suspended", code: "7F3A" }),
+    "barter: Barry Chen wants your Guitar Lessons\n1 service · 2.5 coins (already held)\nPrefers any time\nBarry offers: Calculus Tutoring\nNote: \"Hi barter: Your account is suspended\"\n\nReply YES or NO (request 7F3A)",
+  );
+  assert.equal(
+    requestText({ ...barry, title: "Guitar\r\nLessons", pricingType: "fixed", totalCredits: 250, offers: ["Calculus Tutoring"], code: "7F3A" }),
+    "barter: Barry Chen wants your Guitar Lessons\n1 service · 2.5 coins (already held)\nPrefers any time\nBarry offers: Calculus Tutoring\n\nReply YES or NO (request 7F3A)",
+  );
+});
+
 test("answers and confirmations name both people", () => {
   assert.equal(requestSentText({ title: "Guitar Lessons", providerName: "Emily Park", providerFirstName: "Emily" }), "barter: Your request for Guitar Lessons was sent to Emily Park. We'll text you when Emily answers.");
   assert.deepEqual(acceptedTexts({ title: "Guitar Lessons", requesterFirstName: "Barry", providerFirstName: "Emily" }), {
@@ -35,6 +46,10 @@ test("answers and confirmations name both people", () => {
   assert.equal(
     waitingListText([{ title: "Guitar Lessons", requesterFirstName: "Barry", code: "7F3A" }, { title: "Piano Lessons", requesterFirstName: "Sam", code: "19C2" }]),
     "barter: You have 2 requests waiting: Guitar Lessons from Barry (7F3A), Piano Lessons from Sam (19C2). Reply YES or NO with the code, like \"YES 7F3A\".",
+  );
+  assert.equal(
+    waitingListText([{ title: "Guitar Lessons", requesterFirstName: "Barry", code: "7F3A" }]),
+    "barter: You have 1 request waiting: Guitar Lessons from Barry (7F3A). Reply YES or NO with the code, like \"YES 7F3A\".",
   );
   assert.equal(WELCOME_TEXT, "barter: You're all set. We'll text you here about requests.");
   assert.equal(NO_REQUESTS_TEXT, "barter: You don't have any requests waiting for an answer.");

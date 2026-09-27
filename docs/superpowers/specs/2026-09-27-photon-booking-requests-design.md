@@ -45,7 +45,7 @@ Reply YES or NO (request 7F3A)
 ```
 
 - The second line is `N hour(s) · C coin(s) (already held)` for hourly listings, and `1 service · C coin(s) (already held)` for fixed-price ones. Coins are shown the way the app shows them elsewhere (`credits / 100`, so `2.5 coins` is possible).
-- The "Prefers" line uses `formatAvailability([window])`, or "Any time".
+- The "Prefers" line uses `formatAvailability([window])`, or reads `Prefers any time` for listings without windows.
 - "offers" lists up to three of the requester's active listing titles, then `+N more`. The line is left out when they have none.
 - The Note line is left out when there's no note.
 

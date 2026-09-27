@@ -46,7 +46,7 @@ export function RequestForm({ service, balance, onBack, onSent }: { service: Ser
 
   return (
     <form onSubmit={submit} className="mt-8 max-w-[640px]">
-      <button type="button" onClick={onBack} className="font-mono text-[15px] font-bold underline">
+      <button type="button" onClick={onBack} disabled={busy} className="font-mono text-[15px] font-bold underline">
         Back
       </button>
       <h3 className="mt-4 font-mono text-xl font-bold lg:text-2xl">Request {service.title}</h3>
@@ -57,7 +57,7 @@ export function RequestForm({ service, balance, onBack, onSent }: { service: Ser
             <div className="grid gap-2">
               {service.availability.map((choice, index) => (
                 <label key={`${choice.day}-${choice.start}`} className="flex items-center gap-3 font-mono text-base">
-                  <input type="radio" checked={slot === index} onChange={() => setSlot(index)} className="size-[18px] accent-barter-navy" />
+                  <input type="radio" name="window" checked={slot === index} onChange={() => setSlot(index)} className="size-[18px] accent-barter-navy" />
                   {formatAvailability([choice])}
                 </label>
               ))}

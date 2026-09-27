@@ -1,20 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import type { Service } from "@/lib/barter/data";
 import { formatAvailability } from "@/lib/availability";
 import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
+import { RequestForm } from "./request-form";
 import { ServiceArt } from "./results";
+import { TurnOnTexts } from "./texts-banner";
 import { useState } from "react";
+
+const contactButton = "flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl";
 
 export function ListingModal({
   service,
+  balance,
+  textsEnabled,
   onClose,
 }: {
   service: Service | null;
+  balance: number;
+  textsEnabled: boolean;
   onClose: () => void;
 }) {
   return (
@@ -25,28 +34,64 @@ export function ListingModal({
       closeOnBackdrop
       className="lg:max-h-[min(843px,calc(100dvh-4rem))]"
     >
-      {service && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-8 lg:pt-[42px] lg:pr-[59px] lg:pb-[58px] lg:pl-[66px]">
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">
-              <h2
-                id="listing-title"
-                className="font-mono text-[28px] leading-tight font-extrabold break-words lg:text-[40px]"
-              >
-                {service.title}
-              </h2>
-              <Rating service={service} className="mt-2 lg:hidden" />
-            </div>
-            <Rating service={service} className="hidden lg:flex lg:pt-2" />
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="shrink-0 lg:ml-3"
-            >
-              <X className="size-8 lg:size-10" strokeWidth={2.5} />
+      {/* Keyed so each listing starts on its details, not a previous listing's request form. */}
+      {service && <ListingBody key={service.id} service={service} balance={balance} textsEnabled={textsEnabled} onClose={onClose} />}
+    </Modal>
+  );
+}
+
+function ListingBody({ service, balance, textsEnabled, onClose }: { service: Service; balance: number; textsEnabled: boolean; onClose: () => void }) {
+  const router = useRouter();
+  const [view, setView] = useState<"details" | "request" | "sent">("details");
+  const providerFirstName = service.providerName.split(" ")[0];
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-8 lg:pt-[42px] lg:pr-[59px] lg:pb-[58px] lg:pl-[66px]">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <h2
+            id="listing-title"
+            className="font-mono text-[28px] leading-tight font-extrabold break-words lg:text-[40px]"
+          >
+            {service.title}
+          </h2>
+          <Rating service={service} className="mt-2 lg:hidden" />
+        </div>
+        <Rating service={service} className="hidden lg:flex lg:pt-2" />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="shrink-0 lg:ml-3"
+        >
+          <X className="size-8 lg:size-10" strokeWidth={2.5} />
+        </button>
+      </div>
+      {view === "request" ? (
+        textsEnabled ? (
+          <RequestForm
+            service={service}
+            balance={balance}
+            onBack={() => setView("details")}
+            onSent={() => {
+              setView("sent");
+              // Shows the new balance and the booking on the profile page.
+              router.refresh();
+            }}
+          />
+        ) : (
+          <section aria-labelledby="request-texts" className="mt-8 max-w-[640px]">
+            <h3 id="request-texts" className="font-mono text-xl font-bold lg:text-2xl">Turn on texts first</h3>
+            <p className="mt-3 font-mono text-base text-barter-gray lg:text-lg">
+              barter texts you when {providerFirstName} answers, so texts need to be on before you send a request.
+            </p>
+            <TurnOnTexts className="mt-5" />
+            <button type="button" onClick={() => setView("details")} className="mt-6 font-mono text-[15px] font-bold underline">
+              Back
             </button>
-          </div>
+          </section>
+        )
+      ) : (
+        <>
           <Gallery service={service} />
           <div className="mt-7 flex flex-col gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
             <section aria-labelledby="listing-description" className="min-w-0 lg:max-w-[770px]">
@@ -69,18 +114,28 @@ export function ListingModal({
                 {service.availability.length > 0 && " (New York time)"}
               </p>
             </section>
-            {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
-            <Link
-              href={service.own ? "/profile" : `/profile/${service.providerId}`}
-              aria-label={service.own ? "View your profile" : `Contact ${service.providerName}`}
-              className="flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
-            >
-              {service.own ? "Your profile" : "Contact"}
-            </Link>
+            <Contact service={service} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
           </div>
-        </div>
+        </>
       )}
-    </Modal>
+    </div>
+  );
+}
+
+function Contact({ service, sent, providerFirstName, onContact }: { service: Service; sent: boolean; providerFirstName: string; onContact: () => void }) {
+  if (service.own) {
+    return <Link href="/profile" aria-label="View your profile" className={contactButton}>Your profile</Link>;
+  }
+  if (sent) {
+    return <p role="status" className="max-w-[260px] font-mono text-base font-bold lg:text-lg">Request sent. We&apos;ll text you when {providerFirstName} answers.</p>;
+  }
+  if (!service.providerTextsEnabled) {
+    return <p className="max-w-[260px] font-mono text-base text-barter-gray lg:text-lg">Requests aren&apos;t available for this provider yet</p>;
+  }
+  return (
+    <button type="button" onClick={onContact} aria-label={`Contact ${service.providerName}`} className={contactButton}>
+      Contact
+    </button>
   );
 }
 

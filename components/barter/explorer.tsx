@@ -15,6 +15,7 @@ import type {
 import { CreateListingModal } from "./create-listing";
 import { Header, type Panel, SearchInput } from "./header";
 import { ListingModal } from "./listing-modal";
+import { TextsBanner } from "./texts-banner";
 import {
   FiltersPanel,
   NotificationsPanel,
@@ -37,6 +38,7 @@ export function Explorer({
   services,
   categories,
   balance,
+  textsEnabled,
   areas,
   notifications,
   initialZip,
@@ -46,6 +48,8 @@ export function Explorer({
   services: Service[];
   categories: CategoryOption[];
   balance: number;
+  /** Whether the viewer has turned on texts. */
+  textsEnabled: boolean;
   areas: ZipArea[];
   notifications: Notification[];
   initialZip: string | null;
@@ -167,6 +171,8 @@ export function Explorer({
         filters={filters}
       />
 
+      {!textsEnabled && <TextsBanner />}
+
       <main className="relative flex min-h-0 flex-1 bg-[#e9ecef]">
         {(panel === "notifications" ||
           panel === "filters") && (
@@ -274,6 +280,8 @@ export function Explorer({
 
       <ListingModal
         service={selected}
+        balance={balance}
+        textsEnabled={textsEnabled}
         onClose={() =>
           setSelectedId(null)
         }

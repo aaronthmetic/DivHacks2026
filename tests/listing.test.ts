@@ -164,10 +164,15 @@ test("the explorer lists active listings with provider ratings and labels", asyn
   assert.deepEqual(data.listings.find((listing) => listing.id === shown._id.toHexString()), {
     id: shown._id.toHexString(), title: "Laptop setup", description: "Homework and test prep.", category: "Tech", images: [],
     rating: 4.5, ratingCount: 2, location: "Morningside Heights", zip: "10027",
-    tags: ["12 coins / service", "In person", "One time"], availability: storedAvailability,
+    tags: ["12 coins / service", "In person", "One time"], availability: storedAvailability, pricingType: "fixed", creditRate: 1200, providerTextsEnabled: false,
     providerId: provider.id.toHexString(), providerName: "List Owner", own: false,
   });
   assert.equal(data.balance, 10);
+  assert.equal(data.textsEnabled, false);
+  await db.collection("user").updateMany({ _id: { $in: [viewer.id, provider.id] } }, { $set: { textsEnabledAt: new Date() } });
+  const texting = await getExplorerData(db, viewer.id.toHexString());
+  assert.equal(texting.textsEnabled, true);
+  assert.equal(texting.listings.find((listing) => listing.id === shown._id.toHexString())?.providerTextsEnabled, true);
   assert.ok(data.categories.some((category) => category.name === "Tech"));
   assert.ok(!data.categories.some((category) => category.name === "Retired"));
   const own = await getExplorerData(db, provider.id.toHexString());

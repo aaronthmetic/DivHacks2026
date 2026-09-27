@@ -45,7 +45,9 @@ export interface Booking {
   /** The listing window the requester picked; absent for listings without windows. */
   preferredWindow?: AvailabilityWindow; note?: string;
   status: "requested" | "accepted" | "awaiting_confirmation" | "completed" | "declined" | "cancelled";
-  providerCompletedAt?: Date; requesterConfirmedAt?: Date; createdAt: Date; updatedAt: Date;
+  providerCompletedAt?: Date; requesterConfirmedAt?: Date;
+  /** Who pressed Finish Barter; the other person must review it. Absent on older bookings. */
+  completedBy?: ObjectId; createdAt: Date; updatedAt: Date;
 }
 export interface CreditAccount { _id: ObjectId; userId: ObjectId; availableCredits: number; heldCredits: number; createdAt: Date; updatedAt: Date }
 export interface CreditTransaction {
@@ -64,6 +66,13 @@ export interface Notification {
   /** An in-app path to open, such as /profile or /bookings/<id>/review. */
   href?: string;
   read: boolean; readAt?: Date; createdAt: Date;
+}
+/**
+ * Whether the viewer must review a completed booking before using the app: they didn't
+ * press Finish Barter themselves. Older bookings could only be finished by the requester.
+ */
+export function reviewRequired(booking: Pick<Booking, "completedBy" | "providerId">, viewer: ObjectId) {
+  return booking.completedBy ? !booking.completedBy.equals(viewer) : booking.providerId.equals(viewer);
 }
 export function exchangeCollections(db: Db) {
   return { genres: db.collection<Genre>("genre"), services: db.collection<Service>("service"), bookings: db.collection<Booking>("booking"), accounts: db.collection<CreditAccount>("creditAccount"), transactions: db.collection<CreditTransaction>("creditTransaction"), reviews: db.collection<Review>("review"), notifications: db.collection<Notification>("notification") };

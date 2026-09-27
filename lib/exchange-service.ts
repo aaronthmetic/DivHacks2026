@@ -179,7 +179,7 @@ export function createExchangeService(db: Db, client: MongoClient) {
         // the provider's "delivered" step is optional.
         requireValue(action === "cancel" ? ["requested", "accepted"].includes(booking.status) : action === "deliver" ? booking.status === "accepted" : action === "confirm" ? ["accepted", "awaiting_confirmation"].includes(booking.status) : booking.status === "requested", "Invalid booking transition.");
         const now = new Date();
-        const changes = { status: target, updatedAt: now, ...(action === "deliver" ? { providerCompletedAt: now } : {}), ...(action === "confirm" ? { requesterConfirmedAt: now } : {}) };
+        const changes = { status: target, updatedAt: now, ...(action === "deliver" ? { providerCompletedAt: now } : {}), ...(action === "confirm" ? { requesterConfirmedAt: now, completedBy: actorId } : {}) };
         const result = await c.bookings.updateOne({ _id: bookingId, status: booking.status }, { $set: changes }, { session });
         requireValue(result.modifiedCount === 1, "Booking changed. Retry.");
         const amount = booking.totalCredits;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ObjectId } from "mongodb";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, assistantText, bookingCode, confirmedText, declinedTexts, expiredTexts, noteText, proposalText, requestSentText, requestText, sentText, waitingListText } from "../lib/booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, assistantText, bookingCode, bookingCodes, confirmedText, declinedTexts, expiredTexts, noteText, proposalText, requestSentText, requestText, sentText, startsWithPreposition, waitingListText } from "../lib/booking-texts";
 import { coinsLabel, priceLabel } from "../lib/listing-data";
 
 const barry = { requesterName: "Barry Chen", requesterFirstName: "Barry", title: "Guitar Lessons" };
@@ -107,4 +107,22 @@ test("expired requests and assistant replies", () => {
   const long = assistantText("x".repeat(600));
   assert.equal(long.length, 480);
   assert.ok(long.endsWith("…"));
+});
+
+test("bookingCodes widens the whole batch to six characters only when two four-character codes collide", () => {
+  const a = new ObjectId("aaaaaaaaaaaaaaaaaaaa7f3a"), b = new ObjectId("bbbbbbbbbbbbbbbbbbbb7f3a"), c = new ObjectId("cccccccccccccccccccc19c2");
+  assert.deepEqual(bookingCodes([a, b]), ["AA7F3A", "BB7F3A"]);
+  assert.deepEqual(bookingCodes([a, c]), ["7F3A", "19C2"]);
+  assert.deepEqual(bookingCodes([c]), ["19C2"]);
+  assert.deepEqual(bookingCodes([]), []);
+});
+
+test("a place that's just a preposition reads naturally, the same rule lib/profile-data.ts's placeLine uses", () => {
+  for (const word of ["on", "by", "at", "via", "over", "in", "On", "BY"]) assert.equal(startsWithPreposition(word), true, word);
+  for (const word of ["Butler Library", "Atlantic Avenue", "Ontario Street"]) assert.equal(startsWithPreposition(word), false, word);
+  // Same edge case lib/profile-data.ts's placeLine renders as "On": placePhrase must agree and not double up with "at".
+  assert.equal(
+    proposalText({ fromFirstName: "Emily", title: "Guitar Lessons", when: "Sat, Oct 3 at 11 AM", place: "on" }),
+    "barter: Emily suggests Sat, Oct 3 at 11 AM on for Guitar Lessons. Reply OK to confirm, or suggest another time.",
+  );
 });

@@ -1,7 +1,7 @@
 import type { Db, Document, MongoClient, ObjectId, WithId } from "mongodb";
 import { logAuthFailure } from "./auth-errors";
 import { InputError } from "./auth-validation";
-import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCode, declinedTexts, waitingListText } from "./booking-texts";
+import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCodes, declinedTexts, waitingListText } from "./booking-texts";
 import { expireStaleRequests } from "./booking-expiry";
 import { coordinate } from "./coordinator";
 import { exchangeCollections, type Booking } from "./exchange-schema";
@@ -49,12 +49,14 @@ export async function handleInboundText(db: Db, client: MongoClient, messenger: 
       logAuthFailure("Text log", error);
     }
     const reply = parseReply(text);
-    if (reply && (reply.code || await hasWaitingRequest(db, user._id))) return answer(db, client, messenger, user, reply);
+    // Every branch is awaited here (not just returned) so a rejection is caught below instead of escaping past this try.
+    if (reply && (reply.code || await hasWaitingRequest(db, user._id))) { await answer(db, client, messenger, user, reply); return; }
     if (await hasActiveBooking(db, user._id)) {
-      return (deps.coordinate ?? coordinate)(db, messenger, deps.llm ?? null, { _id: user._id, firstName: String(user.firstName), phoneNumber: senderPhone }, text, now);
+      await (deps.coordinate ?? coordinate)(db, messenger, deps.llm ?? null, { _id: user._id, firstName: String(user.firstName), phoneNumber: senderPhone }, text, now);
+      return;
     }
-    if (reply) return answer(db, client, messenger, user, reply);
-    return messenger.send(senderPhone, HELP_TEXT);
+    if (reply) { await answer(db, client, messenger, user, reply); return; }
+    await messenger.send(senderPhone, HELP_TEXT);
   } catch (error) {
     logAuthFailure("Incoming text", error);
   }
@@ -100,7 +102,6 @@ async function decide(db: Db, client: MongoClient, messenger: Messenger, provide
 async function listItems(db: Db, bookings: Booking[]) {
   const requesters = await db.collection("user").find({ _id: { $in: bookings.map((booking) => booking.requesterId) } }, { projection: { firstName: 1 } }).toArray();
   const firstName = new Map(requesters.map((requester) => [requester._id.toHexString(), String(requester.firstName)]));
-  const short = bookings.map((booking) => bookingCode(booking._id));
-  const length = new Set(short).size < short.length ? 6 : 4;
-  return bookings.map((booking) => ({ title: booking.serviceSnapshot.title, requesterFirstName: firstName.get(booking.requesterId.toHexString()) ?? "someone", code: bookingCode(booking._id, length) }));
+  const codes = bookingCodes(bookings.map((booking) => booking._id));
+  return bookings.map((booking, i) => ({ title: booking.serviceSnapshot.title, requesterFirstName: firstName.get(booking.requesterId.toHexString()) ?? "someone", code: codes[i] }));
 }

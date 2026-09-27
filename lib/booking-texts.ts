@@ -20,6 +20,13 @@ export function bookingCode(id: ObjectId | string, length = 4) {
   return String(id).slice(-length).toUpperCase();
 }
 
+/** Codes for a list of bookings: four characters each, or six for all of them when any two collide. */
+export function bookingCodes(ids: ObjectId[]): string[] {
+  const short = ids.map((id) => bookingCode(id));
+  const length = new Set(short).size < short.length ? 6 : 4;
+  return ids.map((id) => bookingCode(id, length));
+}
+
 export type RequestDetails = {
   requesterName: string; requesterFirstName: string; title: string;
   pricingType: "fixed" | "hourly"; totalCredits: number; hours?: number;
@@ -71,11 +78,18 @@ export function waitingListText(waiting: { title: string; requesterFirstName: st
   return `barter: You have ${waiting.length} ${waiting.length === 1 ? "request" : "requests"} waiting: ${items}. Reply YES or NO with the code, like "YES ${waiting[0].code}".`;
 }
 
+const PREPOSITION = /^(at|on|in|via|over|by)\b/i;
+
+/** Whether a place already reads naturally because it starts with a preposition ("On Zoom", "By the door"). Shared with lib/profile-data.ts so both agree. */
+export function startsWithPreposition(place: string): boolean {
+  return PREPOSITION.test(place);
+}
+
 // " at Butler Library", or " on Zoom" when the place already starts with a preposition.
 function placePhrase(place?: string) {
   if (!place) return "";
   const clean = oneLine(place);
-  return /^(at|on|in|via|over|by)\s/i.test(clean) ? ` ${clean}` : ` at ${clean}`;
+  return startsWithPreposition(clean) ? ` ${clean}` : ` at ${clean}`;
 }
 
 type Proposal = { title: string; when: string; place?: string };

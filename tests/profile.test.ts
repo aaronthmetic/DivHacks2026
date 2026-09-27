@@ -66,6 +66,7 @@ test("booking cards show the agreed time and place in New York time", async () =
     { serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 250, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "Butler Library" },
     { serviceSnapshot: { title: "Yoga", description: "Session" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 150, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "on Zoom" },
     { serviceSnapshot: { title: "Tutoring", description: "Math help" }, status: "requested", requesterId: requester, providerId: provider, totalCredits: 100 },
+    { serviceSnapshot: { title: "Cooking", description: "Class" }, status: "accepted", requesterId: requester, providerId: provider, totalCredits: 100, scheduledAt: new Date("2026-10-03T15:00:00.000Z"), place: "on" },
   ]);
   const profile = (await getProfileData(db, requester.toHexString(), requester.toHexString(), "1"))!;
   const inPerson = profile.bookings.find(b => b.title === "Guitar Lessons")!;
@@ -75,6 +76,9 @@ test("booking cards show the agreed time and place in New York time", async () =
   const unscheduled = profile.bookings.find(b => b.title === "Tutoring")!;
   assert.equal(unscheduled.lines[0], "Not scheduled");
   assert.equal(unscheduled.lines[1], "requested");
+  // A place that's just the bare preposition "on": agrees with lib/booking-texts.ts's placePhrase (startsWithPreposition), which also treats it as already reading naturally.
+  const barePreposition = profile.bookings.find(b => b.title === "Cooking")!;
+  assert.equal(barePreposition.lines[1], "On");
 });
 
 test("reviews name the service that was booked", async () => {

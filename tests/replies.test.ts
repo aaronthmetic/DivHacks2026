@@ -40,6 +40,14 @@ function messenger() {
   const sent: { phone: string; text: string }[] = [];
   return { sent, async send(phone: string, text: string) { sent.push({ phone, text }); } };
 }
+// A messenger whose send() throws whenever `throwsOn` matches the text, to check handleInboundText's outer catch.
+function throwingMessenger(throwsOn: (text: string) => boolean) {
+  const sent: { phone: string; text: string }[] = [];
+  return { sent, async send(phone: string, text: string) {
+    if (throwsOn(text)) throw new Error("messenger boom");
+    sent.push({ phone, text });
+  } };
+}
 // Records calls to the assistant without running one, so routing can be tested without a real LLM.
 function fakeCoordinate() {
   const calls: { sender: Parameters<NonNullable<InboundDeps["coordinate"]>>[3]; text: string }[] = [];
@@ -213,4 +221,20 @@ test("an expire that throws doesn't stop routing", async () => {
   await handleInboundText(db, client, texts, { senderPhone: solo.phone, text: "hello there" }, { expire: expiry.fn });
   assert.equal(expiry.calls.length, 1);
   assert.deepEqual(texts.sent, [{ phone: solo.phone, text: HELP_TEXT }]);
+});
+
+test("handleInboundText resolves instead of throwing when the messenger fails sending the help text", async () => {
+  const solo = await person(40, "SoloI");
+  const texts = throwingMessenger((text) => text === HELP_TEXT);
+  await assert.doesNotReject(handleInboundText(db, client, texts, { senderPhone: solo.phone, text: "hello there" }));
+  assert.equal(texts.sent.length, 0);
+});
+
+test("handleInboundText resolves instead of throwing when the messenger fails sending a Part A reply", async () => {
+  const barry = await person(41, "Barry8"), emily = await person(42, "Emily8");
+  const first = await request(barry.id, emily.id);
+  // The transition itself must still succeed even though the confirmation text after it fails to send.
+  const texts = throwingMessenger((text) => text.includes("You accepted"));
+  await assert.doesNotReject(handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "Yes" }));
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: first._id }))?.status, "accepted");
 });

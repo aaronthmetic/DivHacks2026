@@ -1,4 +1,5 @@
 import { ObjectId, type Db } from "mongodb";
+import { startsWithPreposition } from "./booking-texts";
 import { exchangeCollections } from "./exchange-schema";
 import { frequencyLabel, priceLabel } from "./listing-data";
 import { editableListing, type EditableListing } from "./listing-edit";
@@ -26,7 +27,8 @@ export function reviewPage(value: unknown, pages: number) {
 const credits = (amount: number) => `${(amount / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} credits`;
 const status = (value: string) => value.replaceAll("_", " ");
 // A place already read naturally ("On Zoom") is kept as is; anything else is introduced with "At".
-const placeLine = (place: string) => /^(at|on|in|via|over|by)\b/i.test(place) ? place.charAt(0).toUpperCase() + place.slice(1) : `At ${place}`;
+// startsWithPreposition is shared with lib/booking-texts.ts's placePhrase so both surfaces agree.
+const placeLine = (place: string) => startsWithPreposition(place) ? place.charAt(0).toUpperCase() + place.slice(1) : `At ${place}`;
 
 // Call only from authenticated server entrypoints. Explicit projections/DTOs keep
 // contact details and booking records out of other users' serialized page props.

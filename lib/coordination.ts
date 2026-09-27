@@ -1,7 +1,7 @@
 // Booking rules for agreeing on an accepted booking's time and place. The assistant's tools call these.
 import type { Db, ObjectId } from "mongodb";
 import { InputError } from "./auth-validation";
-import { bookingCode } from "./booking-texts";
+import { bookingCodes } from "./booking-texts";
 import { exchangeCollections, type Booking, type BookingProposal } from "./exchange-schema";
 
 /** An accepted booking as one of its two people sees it. */
@@ -28,15 +28,14 @@ export async function activeBookings(db: Db, userId: ObjectId): Promise<ActiveBo
   const otherIds = docs.map((booking) => (booking.providerId.equals(userId) ? booking.requesterId : booking.providerId));
   const others = await db.collection("user").find({ _id: { $in: otherIds } }, { projection: { firstName: 1, phoneNumber: 1 } }).toArray();
   const byId = new Map(others.map((person) => [person._id.toHexString(), person]));
-  // The whole batch widens to six characters when any two collide (same rule as listItems in lib/booking-replies.ts).
-  const short = docs.map((booking) => bookingCode(booking._id));
-  const length = new Set(short).size < short.length ? 6 : 4;
-  return docs.map((booking) => {
+  // Same rule as listItems in lib/booking-replies.ts, shared via bookingCodes.
+  const codes = bookingCodes(docs.map((booking) => booking._id));
+  return docs.map((booking, i) => {
     const role = booking.providerId.equals(userId) ? "provider" as const : "requester" as const;
     const otherId = role === "provider" ? booking.requesterId : booking.providerId;
     const person = byId.get(otherId.toHexString());
     const phoneNumber = typeof person?.phoneNumber === "string" ? person.phoneNumber : undefined;
-    return { booking, role, other: { id: otherId, firstName: String(person?.firstName ?? "someone"), ...(phoneNumber ? { phoneNumber } : {}) }, code: bookingCode(booking._id, length) };
+    return { booking, role, other: { id: otherId, firstName: String(person?.firstName ?? "someone"), ...(phoneNumber ? { phoneNumber } : {}) }, code: codes[i] };
   });
 }
 

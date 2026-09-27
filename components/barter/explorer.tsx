@@ -1,9 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import type { Notification, Service, ZipArea } from "@/lib/barter/data";
+import { Plus } from "lucide-react";
+import type {
+  CategoryOption,
+  Notification,
+  Service,
+  ZipArea,
+} from "@/lib/barter/data";
+import { CreateListingModal } from "./create-listing";
 import { Header, type Panel, SearchInput } from "./header";
+import { ListingModal } from "./listing-modal";
 import { FiltersPanel, NotificationsPanel } from "./panels";
 import { ResultsPanel } from "./results";
 
@@ -13,10 +22,12 @@ const ServiceMap = dynamic(() => import("./service-map"), {
   loading: () => <div className="size-full bg-[#e9ecef]" />,
 });
 
-// Search and zip selection work; filters and dragging the results sheet
-// aren't wired up yet.
+// Filters and dragging the results sheet aren't wired up yet; listings open in a
+// modal and new ones are posted from the + button.
 export function Explorer({
   services,
+  categories,
+  balance,
   areas,
   notifications,
   initialZip,
@@ -25,6 +36,8 @@ export function Explorer({
   query = "",
 }: {
   services: Service[];
+  categories: CategoryOption[];
+  balance: number;
   areas: ZipArea[];
   notifications: Notification[];
   initialZip: string | null;
@@ -32,9 +45,14 @@ export function Explorer({
   mapsMapId?: string;
   query?: string;
 }) {
+  const router = useRouter();
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const toggle = (next: Panel) =>
     setPanel((current) => (current === next ? null : next));
+  const selected = services.find((service) => service.id === selectedId) ?? null;
+  const select = (service: Service) => setSelectedId(service.id);
   // Picking a zip on the map narrows the results to it; picking it again clears it.
   const [selectedZip, setSelectedZip] = useState<string | null>(null);
   // Stable, so the map doesn't re-add its zip outlines on every render.
@@ -61,7 +79,7 @@ export function Explorer({
   const unreadCount = notifications.filter((n) => !n.read).length;
   const filters = (
     <FiltersPanel
-      genres={[...new Set(services.map((service) => service.category))]}
+      genres={categories.map((category) => category.name)}
       zips={areas}
     />
   );
@@ -72,6 +90,7 @@ export function Explorer({
         openPanel={panel}
         onToggle={toggle}
         unreadCount={unreadCount}
+        balance={balance}
         query={query}
         filters={filters}
       />
@@ -104,7 +123,12 @@ export function Explorer({
           aria-label="Results"
           className="relative hidden min-w-0 flex-1 overflow-y-auto lg:block"
         >
-          <ResultsPanel services={listed} query={query} zip={selectedZip} />
+          <ResultsPanel
+            services={listed}
+            query={query}
+            zip={selectedZip}
+            onSelect={select}
+          />
         </section>
         <section
           aria-label="Results"
@@ -119,6 +143,7 @@ export function Explorer({
               services={listed}
               query={query}
               zip={selectedZip}
+              onSelect={select}
               compact
             />
           </div>
@@ -148,7 +173,29 @@ export function Explorer({
             {filters}
           </div>
         )}
+        {/* Hidden while a panel is open so it never covers the menu or notifications. */}
+        {!panel && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            aria-label="List a service"
+            className="fixed right-4 bottom-4 z-30 flex size-16 items-center justify-center rounded-[6px] bg-barter-ink text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)] transition-transform hover:scale-105 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:right-6 lg:bottom-[34px] lg:size-[102px]"
+          >
+            <Plus className="size-10 lg:size-[62px]" strokeWidth={2.75} />
+          </button>
+        )}
       </main>
+      <ListingModal service={selected} onClose={() => setSelectedId(null)} />
+      <CreateListingModal
+        open={creating}
+        categories={categories}
+        onClose={() => setCreating(false)}
+        onPublished={() => {
+          setCreating(false);
+          // Reloads the server-rendered listings, including the new one.
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

@@ -11,12 +11,14 @@ export function Header({
   openPanel,
   onToggle,
   unreadCount,
+  balance,
   query,
   filters,
 }: {
   openPanel: Panel | null;
   onToggle: (panel: Panel) => void;
   unreadCount: number;
+  balance: number;
   query: string;
   filters: ReactNode;
 }) {
@@ -69,6 +71,12 @@ export function Header({
         )}
       </div>
       <div className="ml-auto flex items-center gap-3 lg:ml-0 lg:gap-4">
+        <p className="flex h-10 items-center gap-1.5 rounded-[10px] bg-barter-ink px-3 text-lg font-bold text-white lg:h-12 lg:gap-2 lg:px-4 lg:text-[26px]">
+          <span className="sr-only">Balance:</span>
+          {balance.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          <CoinIcon className="size-5 lg:size-[26px]" />
+          <span className="sr-only">coins</span>
+        </p>
         <button
           type="button"
           onClick={() => onToggle("notifications")}
@@ -148,6 +156,24 @@ function FilterIcon(props: SVGProps<SVGSVGElement>) {
       <circle cx="11" cy="4" r="3" />
       <circle cx="22" cy="12" r="3" />
       <circle cx="14" cy="20" r="3" />
+    </svg>
+  );
+}
+
+// A "C" in a ring, the coin mark from the mockup.
+function CoinIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.6}
+      strokeLinecap="round"
+      aria-hidden
+      {...props}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M15.2 9.3a4.2 4.2 0 1 0 0 5.4" />
     </svg>
   );
 }

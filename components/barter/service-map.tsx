@@ -16,7 +16,7 @@ import {
   useApiLoadingStatus,
   useMap,
 } from "@vis.gl/react-google-maps";
-import type { Category, Service, ZipArea } from "@/lib/barter/data";
+import type { Service, ZipArea } from "@/lib/barter/data";
 import boundaries from "@/lib/barter/zip-boundaries.json";
 import { cn } from "@/lib/utils";
 import { ServiceArt } from "./results";
@@ -300,7 +300,7 @@ function average(values: number[]) {
 }
 
 // A zip shows its services; a merged stack shows one card per zip.
-function cardsFor(group: Group, services: Service[]): Category[] {
+function cardsFor(group: Group, services: Service[]): string[] {
   if (group.zips.length > 1) {
     return group.zips
       .slice(0, MAX_CARDS)
@@ -362,7 +362,7 @@ function CardStack({
   label,
   selected,
 }: {
-  cards: Category[];
+  cards: string[];
   label: string;
   selected: boolean;
 }) {
@@ -395,7 +395,7 @@ function Card({
   selected = false,
   className,
 }: {
-  category: Category | undefined;
+  category: string | undefined;
   label?: string;
   selected?: boolean;
   className?: string;

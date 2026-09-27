@@ -51,6 +51,7 @@
 /* barter colors, sampled from the mockups. */
 @theme {
   --color-barter-navy: #000b80;
+  --color-barter-ink: #00053a;
   --color-barter-periwinkle: #6672fd;
   --color-barter-blue: #2ca3ff;
   --color-barter-star: #fff300;

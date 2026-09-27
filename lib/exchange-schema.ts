@@ -11,6 +11,10 @@ export interface UserExchangeFields {
   reviews: string[];
 }
 export interface Genre { _id: ObjectId; name: string; slug: string; description: string; isActive: boolean }
+/** Whether a listing is offered once or repeats, such as every 2 weeks. */
+export type ServiceFrequency =
+  | { type: "single" }
+  | { type: "recurring"; interval: number; unit: "day" | "week" | "month" };
 export interface Service {
   _id: ObjectId; userId: ObjectId; genreId: ObjectId; title: string; description: string;
   zipCode?: string; countryCode?: string; deliveryMode: "remote" | "in_person" | "either";
@@ -19,10 +23,12 @@ export interface Service {
   creditRate: number; status: "active" | "paused" | "archived"; createdAt: Date; updatedAt: Date;
   /** GridFS image IDs (see lib/gridfs.ts); services created before images have none. */
   images?: Images;
+  /** Services created before frequencies existed have none and are single-time. */
+  frequency?: ServiceFrequency;
 }
 /** Added details are optional for bookings created before full snapshots. */
 export type ServiceSnapshot = Pick<Service, "title" | "description" | "pricingType" | "creditRate">
-  & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images">>;
+  & Partial<Pick<Service, "genreId" | "deliveryMode" | "zipCode" | "countryCode" | "images" | "frequency">>;
 export interface Booking {
   _id: ObjectId; serviceId: ObjectId; providerId: ObjectId; requesterId: ObjectId;
   serviceSnapshot: ServiceSnapshot;
@@ -46,6 +52,7 @@ export async function ensureExchangeIndexes(db: Db) {
     c.genres.createIndex({ slug: 1 }, { unique: true }),
     c.services.createIndex({ genreId: 1, countryCode: 1, zipCode: 1, status: 1 }),
     c.services.createIndex({ userId: 1, status: 1 }),
+    c.services.createIndex({ status: 1, createdAt: -1 }),
     c.bookings.createIndex({ providerId: 1, status: 1, createdAt: -1 }),
     c.bookings.createIndex({ requesterId: 1, status: 1, createdAt: -1 }),
     c.accounts.createIndex({ userId: 1 }, { unique: true }),
@@ -56,4 +63,25 @@ export async function ensureExchangeIndexes(db: Db) {
     c.bookings.createIndex({ requesterId: 1, status: 1, scheduledAt: 1, _id: 1 }),
     c.reviews.createIndex({ bookingId: 1, authorId: 1 }, { unique: true }),
   ]);
+}
+/** Categories offered when creating a listing. Admins can deactivate or rename them later. */
+export const DEFAULT_GENRES = [
+  { slug: "tutoring", name: "Tutoring", description: "Lessons, homework help and test prep" },
+  { slug: "music", name: "Music", description: "Instrument and voice lessons" },
+  { slug: "repairs", name: "Repairs", description: "Fixing, assembling and maintaining things" },
+  { slug: "pets", name: "Pets", description: "Walking, sitting and pet care" },
+  { slug: "beauty", name: "Beauty", description: "Hair, nails and grooming" },
+  { slug: "creative", name: "Creative", description: "Photography, art and design" },
+  { slug: "fitness", name: "Fitness", description: "Training, yoga and coaching" },
+  { slug: "tech", name: "Tech", description: "Computer help, websites and setup" },
+];
+/** Inserts missing default categories without changing existing ones. Safe to run repeatedly. */
+export async function ensureDefaultGenres(db: Db) {
+  const { genres } = exchangeCollections(db);
+  // Upserts on the unique slug are retried by the server if instances race.
+  await Promise.all(DEFAULT_GENRES.map((genre) => genres.updateOne(
+    { slug: genre.slug },
+    { $setOnInsert: { _id: new ObjectId(), ...genre, isActive: true } },
+    { upsert: true },
+  )));
 }

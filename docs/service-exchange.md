@@ -6,7 +6,7 @@
 | --- | --- |
 | `user` | Existing authentication fields plus optional `bio`, `zipCode`, `countryCode`; server-managed `rating`, `numberOfReviews`, and `reviews`. |
 | `genre` | Name, unique slug, description, active flag. Categories are managed server-side. |
-| `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, status, timestamps. |
+| `service` | Provider (`userId`), genre, title, description, location, delivery mode, pricing type/rate, frequency, status, timestamps. |
 | `booking` | Service and participants, immutable category, description, delivery/location, image-ID and pricing snapshot, agreed duration/total, optional schedule, status and completion timestamps. |
 | `creditAccount` | One account per user; available and held balances. |
 | `creditTransaction` | Append-only balance deltas, account/booking references, operation type, unique idempotency key, creation time. |
@@ -18,6 +18,8 @@ Every credit field, including rates and ledger deltas, uses integer hundredths: 
 
 Delivery modes are `remote`, `in_person`, and `either`. The latter two require a string postal code and uppercase two-letter country code. Postal codes preserve leading zeros. Service states are `active`, `paused`, and `archived`.
 
+A listing's `frequency` is either `{ type: "single" }` or `{ type: "recurring", interval, unit }`, where `interval` is a whole number from 1 to 99 and `unit` is `day`, `week`, or `month` (so "every 2 weeks" is `{ type: "recurring", interval: 2, unit: "week" }`). Only those keys are stored, and booking snapshots copy it. Listings created before the field existed have none and are treated as single-time; no migration is needed.
+
 ## Server interfaces
 
 Construct `createExchangeService(db, client)` with a database and its owning MongoClient. Its methods are:
@@ -28,7 +30,13 @@ Construct `createExchangeService(db, client)` with a database and its owning Mon
 - `transitionBooking(actorId, bookingId, action)`: enforce participant roles and booking transitions, with transactional refunds/payment.
 - `createReview(authorId, bookingId, rating, comment)`: derive the subject from the booking and enforce completed-booking participation.
 
-Actor IDs must come from authenticated server sessions, never a client-supplied identity. No booking HTTP endpoints or UI are included. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
+Actor IDs must come from authenticated server sessions, never a client-supplied identity. No booking HTTP endpoints or UI are included.
+
+## Listing endpoint and map page
+
+`POST /api/services` publishes a listing for the signed-in user through `createService`. It takes a multipart form: `title`, `genreId`, `description`, `deliveryMode`, `zipCode` (5 digits; optional only for `remote`, and stored with country `US`), `coins` (a whole number, stored as `creditRate = coins × 100`), `per` (`hour` → `hourly`, `service` → `fixed`), `frequency` (`single` or `recurring`, with `interval` and `unit` when recurring), and up to five `images` (JPEG, PNG, or WebP). Like the profile endpoints it requires the configured `Origin`, a complete account, and the shared 20-per-minute mutation limit; it rejects unknown or repeated fields. The whole request is capped at 4 MiB, below Vercel's 4.5 MB function limit, and the form shrinks larger photos in the browser first. Photos are validated by signature and stored in GridFS with `{ ownerId, purpose: "service" }` metadata before the listing is created; if creation fails they are deleted. It returns `201 { success: true, id }` or `{ error: { code, message } }` with 400, 401, 403, 413, 429, or 503.
+
+The map page (`/`) loads the 200 newest active listings in active categories with `getExplorerData` (`lib/listing-data.ts`). It shows each provider's review average and count, never their contact details, plus the viewer's available balance. Contact on a listing opens the provider's profile until messaging exists. Optional user fields are declared in auth configuration but are not editable through the existing name-only profile endpoint.
 
 The provider can accept or decline a requested booking. Either participant can cancel a requested or accepted booking. The provider marks an accepted booking delivered (`awaiting_confirmation`); the requester confirms to complete and pay. Repeating an authorized transition whose target is already current is a no-op. Invalid transitions fail without changing balances. Decline/cancel release held credits; completion removes the requester's hold and increases the provider's available balance. There is no automatic settlement or dispute workflow.
 
@@ -42,7 +50,7 @@ Every new session (registration or sign-in) grants missing welcome credits to co
 
 **Before exposing booking or review endpoints:** welcome credits currently go to accounts whose email and phone are unverified, so scripted sign-ups could farm credits and reviews. Add verification or another abuse control first. The internal `user.creditGrantVersion` counter serializes first-time grants; it is not client-editable.
 
-Genres must be inserted by a trusted server/admin process before listings can be created; the profile fixture script creates its own clearly labeled demo categories. Messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
+Genres are managed server-side. The app inserts eight default categories (Tutoring, Music, Repairs, Pets, Beauty, Creative, Fitness, Tech; see `DEFAULT_GENRES`) in the background at startup and during `npm run db:indexes`, matched by slug; categories that already exist are never changed, so an admin can rename or deactivate them. Other categories must still be inserted by a trusted server/admin process; the profile fixture script creates its own clearly labeled demo categories. Messaging, structured availability, distance search, cash conversion, platform fees, and moderation remain future additions.
 
 ## Verification
 

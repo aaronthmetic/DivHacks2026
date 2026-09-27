@@ -9,6 +9,7 @@ export function snapshotService(service: Service): ServiceSnapshot {
     genreId: service.genreId, deliveryMode: service.deliveryMode,
     ...(service.zipCode !== undefined ? { zipCode: service.zipCode } : {}),
     ...(service.countryCode !== undefined ? { countryCode: service.countryCode } : {}),
+    ...(service.frequency !== undefined ? { frequency: { ...service.frequency } } : {}),
     images: [...(service.images ?? [])],
   };
 }

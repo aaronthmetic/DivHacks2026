@@ -1,26 +1,29 @@
-// Mock data for the barter UI until a real API exists. Components only depend
-// on these types, so swapping the source later shouldn't touch them.
-
-export type Category =
-  | "Tutoring"
-  | "Music"
-  | "Repairs"
-  | "Pets"
-  | "Beauty"
-  | "Creative"
-  | "Fitness"
-  | "Tech";
+// Types for the barter UI. Listings come from MongoDB (lib/listing-data.ts); zip
+// areas and notifications are still mock data until they have a real source.
 
 export type Service = {
   id: string;
   title: string;
-  category: Category;
+  description: string;
+  /** Category (genre) name. */
+  category: string;
+  /** Photo URLs; the first is the cover. */
+  images: string[];
+  /** The provider's average rating and number of reviews. */
   rating: number;
   ratingCount: number;
   location: string;
-  zip: string;
+  /** Null for remote listings without a ZIP code. */
+  zip: string | null;
+  /** Price, delivery and frequency labels. */
   tags: string[];
+  providerId: string;
+  providerName: string;
+  /** Whether the signed-in viewer posted this listing. */
+  own: boolean;
 };
+
+export type CategoryOption = { id: string; name: string };
 
 export type ZipArea = {
   zip: string;
@@ -44,169 +47,6 @@ export const zipAreas: ZipArea[] = [
   { zip: "10027", neighborhood: "Morningside Heights", lat: 40.81266, lng: -73.95498 },
   { zip: "10029", neighborhood: "East Harlem", lat: 40.79225, lng: -73.94733 },
   { zip: "10031", neighborhood: "Hamilton Heights", lat: 40.8248, lng: -73.95021 },
-];
-
-export const services: Service[] = [
-  {
-    id: "guitar",
-    title: "Guitar Lessons",
-    category: "Music",
-    rating: 4.9,
-    ratingCount: 126,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["Beginner", "Acoustic", "Weekends", "Theory", "Electric", "Kids"],
-  },
-  {
-    id: "calculus",
-    title: "Calculus Tutoring",
-    category: "Tutoring",
-    rating: 4.8,
-    ratingCount: 88,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["Exams", "Remote", "Evenings", "AP", "College", "Weekly"],
-  },
-  {
-    id: "bike",
-    title: "Bike Tune-Ups",
-    category: "Repairs",
-    rating: 4.7,
-    ratingCount: 64,
-    location: "Manhattan Valley",
-    zip: "10025",
-    tags: ["Same day", "Parts", "Road", "Commuter", "Flats", "Pickup"],
-  },
-  {
-    id: "dog-walking",
-    title: "Dog Walking",
-    category: "Pets",
-    rating: 5.0,
-    ratingCount: 41,
-    location: "Upper West Side",
-    zip: "10024",
-    tags: ["Daily", "Big dogs", "Park", "Photos", "Puppies", "Weekends"],
-  },
-  {
-    id: "haircuts",
-    title: "Haircuts & Fades",
-    category: "Beauty",
-    rating: 4.6,
-    ratingCount: 203,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Walk-ins", "Fades", "Beards", "Kids", "Evenings", "Weekends"],
-  },
-  {
-    id: "portraits",
-    title: "Portrait Photos",
-    category: "Creative",
-    rating: 4.9,
-    ratingCount: 37,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Headshots", "Outdoor", "Edits", "Couples", "Events", "1 hour"],
-  },
-  {
-    id: "laptop",
-    title: "Laptop Repair",
-    category: "Tech",
-    rating: 4.5,
-    ratingCount: 72,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Screens", "Batteries", "Mac", "Windows", "Data", "Same week"],
-  },
-  {
-    id: "yoga",
-    title: "Yoga in the Park",
-    category: "Fitness",
-    rating: 4.8,
-    ratingCount: 58,
-    location: "Manhattan Valley",
-    zip: "10025",
-    tags: ["All levels", "Outdoor", "Mornings", "Mats", "Groups", "Weekly"],
-  },
-  {
-    id: "spanish",
-    title: "Spanish Practice",
-    category: "Tutoring",
-    rating: 4.7,
-    ratingCount: 29,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Speaking", "Remote", "Beginner", "Travel", "Weekly", "Evenings"],
-  },
-  {
-    id: "piano",
-    title: "Piano Lessons",
-    category: "Music",
-    rating: 4.9,
-    ratingCount: 95,
-    location: "Upper West Side",
-    zip: "10024",
-    tags: ["Kids", "Adults", "Classical", "Jazz", "Recitals", "In-home"],
-  },
-  {
-    id: "websites",
-    title: "Website Setup",
-    category: "Tech",
-    rating: 4.6,
-    ratingCount: 19,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Portfolio", "Domains", "Remote", "SEO", "Shops", "1 week"],
-  },
-  {
-    id: "cat-sitting",
-    title: "Cat Sitting",
-    category: "Pets",
-    rating: 4.9,
-    ratingCount: 33,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Overnight", "Meds", "Photos", "Holidays", "Plants", "Multi-cat"],
-  },
-  {
-    id: "braids",
-    title: "Braids & Twists",
-    category: "Beauty",
-    rating: 4.8,
-    ratingCount: 112,
-    location: "Hamilton Heights",
-    zip: "10031",
-    tags: ["Box braids", "Twists", "Kids", "Weekends", "Products", "Home visits"],
-  },
-  {
-    id: "assembly",
-    title: "Furniture Assembly",
-    category: "Repairs",
-    rating: 4.7,
-    ratingCount: 81,
-    location: "Morningside Heights",
-    zip: "10027",
-    tags: ["IKEA", "Same day", "Tools", "Mounting", "Shelves", "Evenings"],
-  },
-  {
-    id: "training",
-    title: "Personal Training",
-    category: "Fitness",
-    rating: 4.6,
-    ratingCount: 47,
-    location: "East Harlem",
-    zip: "10029",
-    tags: ["Strength", "Beginner", "Nutrition", "Home", "Mornings", "Park"],
-  },
-  {
-    id: "murals",
-    title: "Murals & Signs",
-    category: "Creative",
-    rating: 4.8,
-    ratingCount: 15,
-    location: "Central Harlem",
-    zip: "10026",
-    tags: ["Storefronts", "Murals", "Lettering", "Design", "Outdoor", "Custom"],
-  },
 ];
 
 export const notifications: Notification[] = [

@@ -5,6 +5,7 @@ import {
   Camera,
   Dumbbell,
   GraduationCap,
+  Handshake,
   Laptop,
   Music,
   PawPrint,
@@ -13,11 +14,13 @@ import {
   Wrench,
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Category, Service } from "@/lib/barter/data";
+import type { Service } from "@/lib/barter/data";
 import { cn } from "@/lib/utils";
 
-// Stand-in artwork per category until services have real photos.
-const CATEGORY_ART: Record<Category, { icon: LucideIcon; colors: string }> = {
+type Art = { icon: LucideIcon; colors: string };
+
+// Stand-in artwork for listings without photos, keyed by the default category names.
+const CATEGORY_ART: Record<string, Art> = {
   Tutoring: { icon: GraduationCap, colors: "bg-[#e8eaff] text-[#4b55c8]" },
   Music: { icon: Music, colors: "bg-[#fff1e0] text-[#c2600a]" },
   Repairs: { icon: Wrench, colors: "bg-[#e3f4e8] text-[#2f7d4a]" },
@@ -27,6 +30,7 @@ const CATEGORY_ART: Record<Category, { icon: LucideIcon; colors: string }> = {
   Fitness: { icon: Dumbbell, colors: "bg-[#fef6d8] text-[#a87b00]" },
   Tech: { icon: Laptop, colors: "bg-[#e6ecf5] text-[#3a5578]" },
 };
+const OTHER_ART: Art = { icon: Handshake, colors: "bg-[#eef0f4] text-[#4a5568]" };
 
 const MAX_TAGS = 3;
 
@@ -35,11 +39,11 @@ export function ServiceArt({
   className,
   iconClassName,
 }: {
-  category: Category;
+  category: string;
   className?: string;
   iconClassName?: string;
 }) {
-  const { icon: Icon, colors } = CATEGORY_ART[category];
+  const { icon: Icon, colors } = CATEGORY_ART[category] ?? OTHER_ART;
   return (
     <div className={cn("flex items-center justify-center", colors, className)}>
       <Icon aria-hidden className={iconClassName} strokeWidth={1.5} />
@@ -52,11 +56,13 @@ export function ResultsPanel({
   services,
   query,
   zip,
+  onSelect,
   compact = false,
 }: {
   services: Service[];
   query: string;
   zip: string | null;
+  onSelect: (service: Service) => void;
   compact?: boolean;
 }) {
   return (
@@ -68,7 +74,7 @@ export function ResultsPanel({
         <p className="mt-4 text-[15px] text-barter-gray">
           {query || zip
             ? "No listings match. Try another search or area."
-            : "No listings yet."}
+            : "No listings yet. Use the + button to post the first one."}
         </p>
       )}
       <ul
@@ -82,7 +88,11 @@ export function ResultsPanel({
       >
         {services.map((service) => (
           <li key={service.id}>
-            <ServiceCard service={service} compact={compact} />
+            <ServiceCard
+              service={service}
+              compact={compact}
+              onSelect={onSelect}
+            />
           </li>
         ))}
       </ul>
@@ -93,25 +103,35 @@ export function ResultsPanel({
 function ServiceCard({
   service,
   compact,
+  onSelect,
 }: {
   service: Service;
   compact: boolean;
+  onSelect: (service: Service) => void;
 }) {
+  const cover = cn("aspect-square w-full", compact ? "rounded-xl" : "rounded-[20px]");
   return (
     <article
       className={cn(
-        "bg-white shadow-[0_4px_12px_rgba(0,0,0,0.15)]",
+        "relative bg-white shadow-[0_4px_12px_rgba(0,0,0,0.15)]",
         compact ? "rounded-[14px] p-3.5" : "rounded-[24px] p-[27px]",
       )}
     >
-      <ServiceArt
-        category={service.category}
-        className={cn(
-          "aspect-square w-full",
-          compact ? "rounded-xl" : "rounded-[20px]",
-        )}
-        iconClassName={compact ? "size-10" : "size-16"}
-      />
+      {service.images[0] ? (
+        // GridFS photos come from the app's image route; the browser loader handles them.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={service.images[0]}
+          alt=""
+          className={cn(cover, "bg-barter-read object-cover")}
+        />
+      ) : (
+        <ServiceArt
+          category={service.category}
+          className={cover}
+          iconClassName={compact ? "size-10" : "size-16"}
+        />
+      )}
       <div
         className={cn(
           "flex items-start justify-between gap-2",
@@ -121,7 +141,7 @@ function ServiceCard({
         <h3 className="leading-tight text-black">{service.title}</h3>
         <p className="flex shrink-0 items-center gap-1 leading-tight">
           <span className="sr-only">Rated</span>
-          {service.rating.toFixed(1)}
+          {service.ratingCount ? service.rating.toFixed(1) : "New"}
           <Star
             aria-hidden
             className={cn(
@@ -138,9 +158,20 @@ function ServiceCard({
         )}
       >
         <span className="truncate">{service.location}</span>
-        <span className="shrink-0">{service.ratingCount} ratings</span>
+        <span className="shrink-0">
+          {service.ratingCount}{" "}
+          {service.ratingCount === 1 ? "rating" : "ratings"}
+        </span>
       </div>
       <TagList tags={service.tags} compact={compact} />
+      {/* Covers the whole card; the card holds a list, which a button can't contain. */}
+      <button
+        type="button"
+        onClick={() => onSelect(service)}
+        className="absolute inset-0 rounded-[inherit] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue"
+      >
+        <span className="sr-only">View {service.title}</span>
+      </button>
     </article>
   );
 }

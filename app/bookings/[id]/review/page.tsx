@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { ObjectId } from "mongodb";
 
 import { getMongo } from "@/lib/mongodb";
-import { exchangeCollections } from "@/lib/exchange-schema";
+import { exchangeCollections, reviewRequired } from "@/lib/exchange-schema";
 import { requireSession } from "@/lib/session";
 import { ReviewModal } from "@/components/barter/review-modal";
 
@@ -40,6 +40,14 @@ export default async function ReviewPage({
     await reviews.findOne({ bookingId: booking._id, authorId: viewer }, { projection: { _id: 1 } }),
   );
 
+  const canReview = booking.status === "completed" && !reviewed;
+  // When the other person finished it, the review can't be skipped (PendingReviewRedirect).
+  let requiredBy: string | undefined;
+  if (canReview && reviewRequired(booking, viewer)) {
+    const finisher = await db.collection("user").findOne({ _id: booking.completedBy ?? booking.requesterId }, { projection: { firstName: 1, name: 1 } });
+    requiredBy = (typeof finisher?.firstName === "string" && finisher.firstName) || String(finisher?.name ?? "Your partner").split(" ")[0];
+  }
+
   return (
     <div className="min-h-dvh bg-barter-read">
       <ReviewModal
@@ -47,8 +55,9 @@ export default async function ReviewPage({
         serviceTitle={
           booking.serviceSnapshot.title
         }
-        canReview={booking.status === "completed" && !reviewed}
+        canReview={canReview}
         reviewed={reviewed}
+        requiredBy={requiredBy}
       />
     </div>
   );

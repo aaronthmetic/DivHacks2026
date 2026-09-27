@@ -12,12 +12,15 @@ export function ReviewModal({
   serviceTitle,
   canReview = true,
   reviewed = false,
+  requiredBy,
 }: {
   bookingId: string;
   serviceTitle: string;
   canReview?: boolean;
   /** Whether the viewer already reviewed this booking. */
   reviewed?: boolean;
+  /** When the other person finished the barter: their first name. The review can't be closed until it's sent. */
+  requiredBy?: string;
 }) {
   const router = useRouter();
 
@@ -95,7 +98,8 @@ export function ReviewModal({
       open
       onClose={closeModal}
       labelledBy="review-title"
-      closeOnBackdrop
+      closeOnBackdrop={!requiredBy}
+      dismissDisabled={Boolean(requiredBy)}
       className="lg:max-w-[760px]"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-8 lg:px-[66px] lg:pt-[42px] lg:pb-[58px]">
@@ -112,9 +116,15 @@ export function ReviewModal({
             <p className="mt-2 font-mono text-base text-barter-gray lg:text-lg">
               {serviceTitle}
             </p>
+
+            {requiredBy && (
+              <p className="mt-3 font-mono text-base text-barter-gray lg:text-lg">
+                {requiredBy} finished this barter. Leave them a review to keep bartering.
+              </p>
+            )}
           </div>
 
-          <button
+          {!requiredBy && <button
             type="button"
             onClick={closeModal}
             aria-label="Close"
@@ -124,7 +134,7 @@ export function ReviewModal({
               className="size-8 lg:size-10"
               strokeWidth={2.5}
             />
-          </button>
+          </button>}
         </div>
 
         {!canReview ? (
@@ -252,14 +262,14 @@ export function ReviewModal({
 
             {/* Actions */}
             <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row">
-              <button
+              {!requiredBy && <button
                 type="button"
                 onClick={closeModal}
                 disabled={submitting}
                 className="flex h-14 flex-1 items-center justify-center rounded-[10px] border border-barter-line bg-white px-8 font-mono text-lg font-extrabold transition hover:bg-barter-read disabled:cursor-not-allowed disabled:opacity-50 lg:h-[68px] lg:text-xl"
               >
                 Cancel
-              </button>
+              </button>}
 
               <button
                 type="button"

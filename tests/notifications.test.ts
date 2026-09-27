@@ -5,7 +5,7 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
 import { updateBooking } from "../lib/booking-actions";
-import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections } from "../lib/exchange-schema";
+import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections, reviewRequired } from "../lib/exchange-schema";
 import { createExchangeService } from "../lib/exchange-service";
 import { getExplorerData } from "../lib/listing-data";
 import { getNotifications, markNotificationRead } from "../lib/notification-data";
@@ -85,6 +85,21 @@ test("either person can finish a booking, straight from accepted, and it pays th
   assert.deepEqual([payer?.availableCredits, payer?.heldCredits, earner?.availableCredits], [300, 0, 1700]);
   assert.equal(await c.transactions.countDocuments({ bookingId: booking._id, type: { $in: ["payment", "earning"] } }), 2);
   assert.equal(await c.notifications.countDocuments({ bookingId: booking._id, type: "booking_completed" }), 1);
+});
+
+test("whoever didn't finish the barter must review it; the finisher only may", async () => {
+  const provider = await person(14, "Ada", "Provider"), requester = await person(15, "Ben", "Requester");
+  const service = await listing(provider.id);
+  const domain = createExchangeService(db, client), c = exchangeCollections(db);
+  const booking = await domain.requestBooking(requester.id, service._id, { preferredWindow: saturday });
+  await domain.transitionBooking(provider.id, booking._id, "accept");
+  await domain.transitionBooking(provider.id, booking._id, "confirm");
+  const done = (await c.bookings.findOne({ _id: booking._id }))!;
+  assert.ok(done.completedBy?.equals(provider.id));
+  assert.deepEqual([reviewRequired(done, requester.id), reviewRequired(done, provider.id)], [true, false]);
+  // Older bookings have no completedBy; only the requester could finish them then.
+  const legacy = { ...done, completedBy: undefined };
+  assert.deepEqual([reviewRequired(legacy, requester.id), reviewRequired(legacy, provider.id)], [false, true]);
 });
 
 test("the finish endpoint checks the origin, session, action and participant", async () => {

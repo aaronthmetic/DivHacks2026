@@ -16,14 +16,18 @@ function remember(id: string) {
   try { if (!prompted(id)) sessionStorage.setItem(KEY, JSON.stringify([...promptedIds(), id])); } catch {}
 }
 
-/** Sends someone to review a completed barter they haven't reviewed, once per visit. */
+/**
+ * Sends someone to review a completed barter they haven't reviewed. When the other person
+ * finished it the review is required, so every page sends them back until it's written;
+ * a barter they finished themselves is offered once per visit.
+ */
 export function PendingReviewRedirect() {
   const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
     // Leave the current review page alone, even if another review is pending, and don't
-    // offer it again this visit: closing it means "not now".
+    // offer an optional one again this visit: closing it means "not now".
     const reviewing = /^\/bookings\/([0-9a-f]{24})\/review(?:\/|$)/i.exec(pathname);
     if (reviewing) {
       remember(reviewing[1]);
@@ -40,13 +44,13 @@ export function PendingReviewRedirect() {
         });
         if (!response.ok || controller.signal.aborted) return;
 
-        const data: { booking?: { id?: unknown } | null } = await response.json();
+        const data: { booking?: { id?: unknown; required?: unknown } | null } = await response.json();
         const id = data.booking?.id;
         if (
           !controller.signal.aborted &&
           typeof id === "string" &&
           /^[0-9a-f]{24}$/i.test(id) &&
-          !prompted(id)
+          (data.booking?.required === true || !prompted(id))
         ) {
           router.replace(`/bookings/${id}/review`);
         }

@@ -8,6 +8,8 @@ import { phoneNumber } from "better-auth/plugins";
 import type { Db, MongoClient } from "mongodb";
 import { logAuthFailure } from "./auth-errors";
 import { conflictMessage, InputError, isProfileComplete, normalizeEmail, normalizePhone, objectBody, onlyFields, registration } from "./auth-validation";
+import type { RegisterPhoton } from "./photon-users";
+import { ensurePhotonUser } from "./texting";
 
 export type AuthEnvironment = {
   baseURL: string;
@@ -16,6 +18,8 @@ export type AuthEnvironment = {
   trustedProxies?: string[];
   googleClientId?: string;
   googleClientSecret?: string;
+  /** Registers complete accounts with Photon; omitted in tests and when Photon isn't configured. */
+  registerPhoton?: RegisterPhoton;
 };
 
 export function googleProfile(profile: { given_name?: string; family_name?: string }) {
@@ -127,6 +131,12 @@ export function createAuth(db: Db, client: MongoClient, env: AuthEnvironment) {
           }
         } catch (error) {
           logAuthFailure("Welcome credit grant", error);
+        }
+        // Registering with Photon is also secondary to signing in. Incomplete accounts wait until they finish.
+        if (env.registerPhoton) {
+          await ensurePhotonUser(db, new ObjectId(session.userId), env.registerPhoton).catch((error: unknown) => {
+            if (!(error instanceof InputError)) logAuthFailure("Photon registration", error);
+          });
         }
       } } },
       // Nothing reads Google's ID token after sign-in, so don't keep the plaintext JWT.

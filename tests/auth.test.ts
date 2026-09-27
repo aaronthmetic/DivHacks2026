@@ -6,7 +6,9 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, googleProfile, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
 import { handleAuthRequest } from "../lib/auth-handler";
+import type { PhotonPerson, RegisterPhoton } from "../lib/photon-users";
 import { updateProfile } from "../lib/profile-service";
+import { turnOnTexts } from "../lib/texts-setup";
 import { isProfileComplete, normalizeEmail, normalizePhone, registration } from "../lib/auth-validation";
 
 const origin = "http://localhost:3000";
@@ -177,7 +179,10 @@ test("Google onboarding requires names and phone, completes once, and preserves 
   assert.equal((await updateProfile(profileRequest({ firstName: "A", lastName: "B" }, cookies), auth, db, origin, false)).status, 403);
   const body = { firstName: "Chosen", lastName: "Name", phoneNumber: "+12025550999" };
   assert.equal((await updateProfile(profileRequest({ ...body, lastName: "" }, cookies, true), auth, db, origin, true)).status, 400);
-  assert.equal((await updateProfile(profileRequest(body, cookies, true), auth, db, origin, true)).status, 200);
+  const registered: PhotonPerson[] = [];
+  const registerPhoton: RegisterPhoton = async (person) => { registered.push(person); return { id: "photon-google", assignedPhoneNumber: "+15550008888" }; };
+  assert.equal((await updateProfile(profileRequest(body, cookies, true), auth, db, origin, true, registerPhoton)).status, 200);
+  assert.deepEqual(registered, [{ phoneNumber: "+12025550999", firstName: "Chosen", lastName: "Name" }]);
   assert.equal((await updateProfile(profileRequest(body, cookies, true), auth, db, origin, true)).status, 409);
   session = await auth.api.getSession({ headers: new Headers({ cookie: cookies }) });
   assert.ok(session && isProfileComplete(session.user));
@@ -397,13 +402,15 @@ test("contact edits require the password, normalize identifiers, and refresh ses
   const changes = { email: " CONTACT-EDIT@EXAMPLE.COM ", phoneNumber: "+1 202 555 0801" };
   assert.equal((await edit(changes)).status, 403);
   assert.equal((await edit({ ...changes, currentPassword: "wrong" })).status, 403);
-  await db.collection("user").updateOne({ _id: new ObjectId(user.user.id) }, { $set: { emailVerified: true, phoneNumberVerified: true } });
+  await db.collection("user").updateOne({ _id: new ObjectId(user.user.id) }, { $set: { emailVerified: true, phoneNumberVerified: true, photonUserId: "photon-old", photonNumber: "+15550006666", textsEnabledAt: new Date() } });
   assert.equal((await edit({ ...changes, currentPassword: user.data.password })).status, 200);
   session = await auth.api.getSession({ headers: new Headers({ cookie: user.cookie }) });
   assert.equal(session?.user.email, "contact-edit@example.com");
   assert.equal(session?.user.phoneNumber, "+12025550801");
   assert.equal(session?.user.emailVerified, false);
   assert.equal(session?.user.phoneNumberVerified, false);
+  const texting = await db.collection("user").findOne({ _id: new ObjectId(user.user.id) });
+  assert.deepEqual([texting?.photonUserId, texting?.photonNumber, texting?.textsEnabledAt], [undefined, undefined, undefined]);
   assert.equal((await request("/sign-in/email", { email: user.data.email, password: user.data.password })).status, 401);
   assert.equal((await request("/sign-in/phone-number", { phoneNumber: "+12025550801", password: user.data.password })).status, 200);
   const other = await register();
@@ -448,4 +455,28 @@ test("Google contact edits require a recently created session; reauth redirects 
   assert.equal(new URL(result.headers.get("location")!, origin).pathname, "/profile/edit");
   const freshCookies = cookie(result);
   assert.equal((await updateProfile(profileRequest({ phoneNumber: "+12025550803" }, freshCookies), auth, db, origin, false)).status, 200);
+});
+
+test("new sessions register complete accounts with Photon once", async () => {
+  const people: PhotonPerson[] = [];
+  const texting = createAuth(db, client, { ...env, registerPhoton: async (person) => { people.push(person); return { id: "photon-session", assignedPhoneNumber: "+15550005555" }; } });
+  const data = account();
+  assert.equal((await request("/sign-up/email", data, "", texting)).status, 200);
+  assert.equal((await request("/sign-in/email", { email: data.email, password: data.password }, "", texting)).status, 200);
+  assert.deepEqual(people, [{ phoneNumber: data.phoneNumber, firstName: "Zoë", lastName: "王" }]);
+  assert.equal((await db.collection("user").findOne({ phoneNumber: data.phoneNumber }))?.photonNumber, "+15550005555");
+});
+
+test("turning on texts returns the barter number to text", async () => {
+  const user = await register();
+  const registerPhoton: RegisterPhoton = async () => ({ id: "photon-texts", assignedPhoneNumber: "+15550007777" });
+  const post = (cookies: string, requestOrigin = origin, register: RegisterPhoton | undefined = registerPhoton) => turnOnTexts(new Request(`${origin}/api/texts`, { method: "POST", headers: { cookie: cookies, origin: requestOrigin } }), auth, db, origin, register);
+  assert.equal((await post("")).status, 401);
+  assert.equal((await post(user.cookie, "https://evil.example")).status, 403);
+  // post()'s `register` parameter defaults to registerPhoton, and a default parameter also applies when the
+  // caller passes `undefined` explicitly, so this case calls turnOnTexts directly to send a truly absent register.
+  assert.equal((await turnOnTexts(new Request(`${origin}/api/texts`, { method: "POST", headers: { cookie: user.cookie, origin } }), auth, db, origin, undefined)).status, 503);
+  const response = await post(user.cookie);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { number: "+15550007777" });
 });

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,6 +18,14 @@ import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
 import { ServiceArt } from "./results";
 
+type AcceptedBooking = {
+  id: string;
+  serviceId: string;
+  providerId: string;
+  requesterId: string;
+  status: "accepted";
+};
+
 export function ListingModal({
   service,
   onClose,
@@ -29,57 +37,147 @@ export function ListingModal({
 }) {
   const router = useRouter();
 
-  const [creatingBooking, setCreatingBooking] = useState(false);
-  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [acceptedBooking, setAcceptedBooking] =
+    useState<AcceptedBooking | null>(null);
 
-  // Default hourly booking duration.
-  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [checkingBooking, setCheckingBooking] =
+    useState(false);
 
-  async function createBooking() {
-    if (!service || service.own || creatingBooking) {
+  const [finishingBooking, setFinishingBooking] =
+    useState(false);
+
+  const [bookingError, setBookingError] =
+    useState<string | null>(null);
+
+  /*
+   * Whenever a service is opened, check whether the
+   * currently logged-in user is involved in an accepted
+   * booking for that service.
+   */
+  useEffect(() => {
+    if (!service) {
+      setAcceptedBooking(null);
+      setCheckingBooking(false);
+      setBookingError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function checkAcceptedBooking() {
+      try {
+        setCheckingBooking(true);
+        setAcceptedBooking(null);
+        setBookingError(null);
+
+        const response = await fetch(
+          `/api/bookings?serviceId=${encodeURIComponent(
+            service!.id,
+          )}&status=accepted`,
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          /*
+           * If there is no logged-in user, don't prevent
+           * the listing from being viewed.
+           */
+          if (response.status === 401) {
+            setAcceptedBooking(null);
+            return;
+          }
+
+          throw new Error(
+            data.error ??
+              "Failed to check for accepted booking",
+          );
+        }
+
+        setAcceptedBooking(data.booking ?? null);
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        console.error(
+          "Failed to check accepted booking:",
+          error,
+        );
+
+        setAcceptedBooking(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setCheckingBooking(false);
+        }
+      }
+    }
+
+    void checkAcceptedBooking();
+
+    return () => {
+      controller.abort();
+    };
+  }, [service?.id]);
+
+  /*
+   * Mark the accepted booking as completed, then go
+   * directly to the review page for that booking.
+   */
+  async function finishBarter() {
+    if (!acceptedBooking || finishingBooking) {
       return;
     }
 
     try {
-      setCreatingBooking(true);
+      setFinishingBooking(true);
       setBookingError(null);
 
-      const response = await fetch("/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `/api/bookings/${acceptedBooking.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "completed",
+          }),
         },
-        body: JSON.stringify({
-          serviceId: service.id,
-
-          // Only hourly services require a duration.
-          durationMinutes:
-            service.pricingType === "hourly"
-              ? durationMinutes
-              : undefined,
-        }),
-      });
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error ?? "Failed to create booking",
+          data.error ?? "Failed to finish barter",
         );
       }
 
-      // Redirect to the newly-created booking.
-      router.push(`/bookings/${data.booking.id}`);
+      router.push(
+        `/bookings/${acceptedBooking.id}/review`,
+      );
     } catch (error) {
-      console.error("Failed to create booking:", error);
+      console.error(
+        "Failed to finish barter:",
+        error,
+      );
 
       setBookingError(
         error instanceof Error
           ? error.message
-          : "Failed to create booking",
+          : "Failed to finish barter",
       );
     } finally {
-      setCreatingBooking(false);
+      setFinishingBooking(false);
     }
   }
 
@@ -169,22 +267,73 @@ export function ListingModal({
               </h3>
 
               <p className="mt-3 font-mono text-base text-barter-gray lg:mt-4 lg:text-xl">
-                {formatAvailability(service.availability)}
+                {formatAvailability(
+                  service.availability,
+                )}
 
                 {service.availability.length > 0 &&
                   " (New York time)"}
               </p>
             </section>
-            {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
-            {!service.own && <Link
-              href={`/profile/${service.providerId}`}
-              aria-label={`Contact ${service.providerName}`}
-              className="flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
-            >
-              Contact
-            </Link>}
+
+            <div className="shrink-0">
+              {/*
+               * If an accepted booking exists, replace
+               * Contact with Finish Barter.
+               */}
+              {acceptedBooking ? (
+                <button
+                  type="button"
+                  onClick={finishBarter}
+                  disabled={finishingBooking}
+                  className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
+                >
+                  {finishingBooking
+                    ? "Finishing..."
+                    : "Finish Barter"}
+                </button>
+              ) : !service.own ? (
+                /*
+                 * While the accepted-booking check is
+                 * running, disable Contact so the wrong
+                 * action cannot briefly be clicked.
+                 */
+                checkingBooking ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white opacity-60 lg:h-[68px] lg:text-2xl"
+                  >
+                    Checking...
+                  </button>
+                ) : (
+                  <Link
+                    href={`/profile/${service.providerId}`}
+                    aria-label={`Contact ${service.providerName}`}
+                    className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
+                  >
+                    Contact
+                  </Link>
+                )
+              ) : null}
+
+              {bookingError && (
+                <p className="mt-3 max-w-[280px] font-mono text-sm font-bold text-red-600">
+                  {bookingError}
+                </p>
+              )}
+            </div>
           </div>
-          {service.own && onEdit && <button type="button" onClick={onEdit} className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90">Edit</button>}
+
+          {service.own && onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90"
+            >
+              Edit
+            </button>
+          )}
         </div>
       )}
     </Modal>
@@ -240,7 +389,10 @@ function Rating({
               <span
                 className="absolute inset-y-0 left-0 overflow-hidden"
                 style={{
-                  width: `${starFill(value, index)}%`,
+                  width: `${starFill(
+                    value,
+                    index,
+                  )}%`,
                 }}
               >
                 <Star

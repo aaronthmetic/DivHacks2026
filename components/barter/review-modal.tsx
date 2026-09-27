@@ -13,6 +13,8 @@ export function ReviewModal({
   canReview = true,
   reviewed = false,
   requiredBy,
+  onClose,
+  onReviewed,
 }: {
   bookingId: string;
   serviceTitle: string;
@@ -21,6 +23,9 @@ export function ReviewModal({
   reviewed?: boolean;
   /** When the other person finished the barter: their first name. The review can't be closed until it's sent. */
   requiredBy?: string;
+  /** Shown as a popup over another page: closing and sending stay there. Without these it returns to the map. */
+  onClose?: () => void;
+  onReviewed?: () => void;
 }) {
   const router = useRouter();
 
@@ -31,9 +36,10 @@ export function ReviewModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Bookings have no page of their own, so the review returns to the map.
+  // Bookings have no page of their own, so the review page returns to the map.
   function closeModal() {
-    router.push("/");
+    if (onClose) onClose();
+    else router.push("/");
   }
 
   async function submitReview() {
@@ -76,8 +82,12 @@ export function ReviewModal({
         );
       }
 
-      router.push("/");
-      router.refresh();
+      if (onReviewed) {
+        onReviewed();
+      } else {
+        router.push("/");
+        router.refresh();
+      }
     } catch (error) {
       console.error("Failed to submit review:", error);
 

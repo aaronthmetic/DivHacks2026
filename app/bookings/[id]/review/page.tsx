@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 
 import { getMongo } from "@/lib/mongodb";
 import { exchangeCollections, reviewRequired } from "@/lib/exchange-schema";
+import { finisherFirstName } from "@/lib/review-prompt";
 import { requireSession } from "@/lib/session";
 import { ReviewModal } from "@/components/barter/review-modal";
 
@@ -41,12 +42,8 @@ export default async function ReviewPage({
   );
 
   const canReview = booking.status === "completed" && !reviewed;
-  // When the other person finished it, the review can't be skipped (PendingReviewRedirect).
-  let requiredBy: string | undefined;
-  if (canReview && reviewRequired(booking, viewer)) {
-    const finisher = await db.collection("user").findOne({ _id: booking.completedBy ?? booking.requesterId }, { projection: { firstName: 1, name: 1 } });
-    requiredBy = (typeof finisher?.firstName === "string" && finisher.firstName) || String(finisher?.name ?? "Your partner").split(" ")[0];
-  }
+  // When the other person finished it, the review can't be skipped (PendingReviewPrompt).
+  const requiredBy = canReview && reviewRequired(booking, viewer) ? await finisherFirstName(db, booking) : undefined;
 
   return (
     <div className="min-h-dvh bg-barter-read">

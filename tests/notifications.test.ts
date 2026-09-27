@@ -9,6 +9,7 @@ import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections, review
 import { createExchangeService } from "../lib/exchange-service";
 import { getExplorerData } from "../lib/listing-data";
 import { getNotifications, markNotificationRead } from "../lib/notification-data";
+import { pendingReview } from "../lib/review-prompt";
 import { submitReview } from "../lib/review-service";
 
 let server: MongoMemoryReplSet, client: MongoClient, db: Db, auth: Auth;
@@ -100,6 +101,12 @@ test("whoever didn't finish the barter must review it; the finisher only may", a
   // Older bookings have no completedBy; only the requester could finish them then.
   const legacy = { ...done, completedBy: undefined };
   assert.deepEqual([reviewRequired(legacy, requester.id), reviewRequired(legacy, provider.id)], [false, true]);
+  // The popup: required for the requester, naming who finished it; optional for the provider.
+  const id = booking._id.toHexString();
+  assert.deepEqual(await pendingReview(db, requester.id), { id, serviceTitle: "Guitar Lessons", required: true, requiredBy: "Ada" });
+  assert.deepEqual(await pendingReview(db, provider.id), { id, serviceTitle: "Guitar Lessons", required: false });
+  await domain.createReview(requester.id, booking._id, 4, "Good");
+  assert.equal(await pendingReview(db, requester.id), null);
 });
 
 test("the finish endpoint checks the origin, session, action and participant", async () => {

@@ -8,6 +8,7 @@ import { formatAvailability } from "@/lib/availability";
 import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
+import { openReview } from "./pending-review-prompt";
 import { RequestForm } from "./request-form";
 import { ServiceArt } from "./results";
 import { TurnOnTexts } from "./texts-banner";
@@ -119,7 +120,7 @@ function ListingBody({ service, requests, onClose, onEdit }: { service: Service;
               </p>
             </section>
             <div className="flex flex-wrap items-center gap-3 lg:max-w-[460px] lg:shrink-0">
-              <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
+              <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} onFinished={onClose} />
               {!service.own && service.providerId && (
                 <Link
                   href={`/profile/${service.providerId}`}
@@ -139,14 +140,14 @@ function ListingBody({ service, requests, onClose, onEdit }: { service: Service;
   );
 }
 
-function Contact({ service, canRequest, sent, providerFirstName, onContact }: { service: Service; canRequest: boolean; sent: boolean; providerFirstName: string; onContact: () => void }) {
+function Contact({ service, canRequest, sent, providerFirstName, onContact, onFinished }: { service: Service; canRequest: boolean; sent: boolean; providerFirstName: string; onContact: () => void; onFinished: () => void }) {
   // Your own listing gets the Edit button, plus Finish Barter for each accepted booking.
   if (service.own) {
     if (!service.toFinish?.length) return null;
     return (
       <div className="flex max-w-[300px] shrink-0 flex-col gap-6">
         {service.toFinish.map(({ id, requesterFirstName }) => (
-          <FinishBarter key={id} bookingId={id} message={`${requesterFirstName} booked this. When it's done, finish the barter to get paid.`} />
+          <FinishBarter key={id} bookingId={id} serviceTitle={service.title} onFinished={onFinished} message={`${requesterFirstName} booked this. When it's done, finish the barter to get paid.`} />
         ))}
       </div>
     );
@@ -156,7 +157,7 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
     return <Link href={`/profile/${service.providerId}`} aria-label={`Contact ${service.providerName}`} className={contactButton}>Contact</Link>;
   }
   if (service.booking && service.booking.status !== "requested") {
-    return <FinishBarter bookingId={service.booking.id} message={`${providerFirstName} accepted your request. When it's done, finish the barter to pay them.`} />;
+    return <FinishBarter bookingId={service.booking.id} serviceTitle={service.title} onFinished={onFinished} message={`${providerFirstName} accepted your request. When it's done, finish the barter to pay them.`} />;
   }
   // An open request (sent just now or earlier) waits for the provider's answer by text.
   if (sent || service.booking) {
@@ -172,8 +173,9 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
   );
 }
 
-// Either person finishes: the provider gets the coins held since the request, then each reviews the other.
-function FinishBarter({ bookingId, message: prompt }: { bookingId: string; message: string }) {
+// Either person finishes: the provider gets the coins held since the request, then each reviews
+// the other. The listing closes and the review pops up over the map.
+function FinishBarter({ bookingId, serviceTitle, message: prompt, onFinished }: { bookingId: string; serviceTitle: string; message: string; onFinished: () => void }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -185,7 +187,9 @@ function FinishBarter({ bookingId, message: prompt }: { bookingId: string; messa
     try {
       const response = await fetch(`/api/bookings/${bookingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "confirm" }) });
       if (response.ok) {
-        router.push(`/bookings/${bookingId}/review`);
+        onFinished();
+        router.refresh();
+        openReview({ id: bookingId, serviceTitle });
         return;
       }
       const data = await response.json().catch(() => null);

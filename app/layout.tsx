@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { getSessionCookie } from "better-auth/cookies";
 import { SessionRefresh } from "@/components/auth/session-refresh";
+import { PendingReviewPrompt } from "@/components/barter/pending-review-prompt";
 import "./globals.css";
 
 const inter = Inter({
@@ -30,7 +31,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{signedIn && <SessionRefresh />}{children}</body>
+      <body className="min-h-full flex flex-col">{signedIn && <SessionRefresh />}{children}{signedIn && <PendingReviewPrompt />}</body>
     </html>
   );
 }

@@ -1,3 +1,4 @@
+import { rebuildAllUserRatings } from "../lib/review-ratings";
 import { addBooking } from "../lib/exchange-actions";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
@@ -245,4 +246,27 @@ test("requests carry a chosen availability window and an optional note", async (
   await assert.rejects(domain.requestBooking(requester, legacy._id, { preferredWindow: slot }), /no time windows/);
   const anyTime = await domain.requestBooking(requester, legacy._id);
   assert.equal("preferredWindow" in (await c.bookings.findOne({ _id: anyTime._id }))!, false);
+});
+
+
+test("rating repair resets empty users and stays correct alongside new reviews", async () => {
+  const { domain, c, requester, provider, service } = await fixture(100);
+  const booking = await domain.requestBooking(requester, service._id, { preferredWindow: slot });
+  await domain.transitionBooking(provider, booking._id, "accept");
+  await domain.transitionBooking(provider, booking._id, "deliver");
+  await domain.transitionBooking(requester, booking._id, "confirm");
+  await db.collection("user").updateMany({ _id: { $in: [provider, requester] } }, {
+    $set: { rating: 5, numberOfReviews: null, reviews: ["stale"] },
+  });
+  await c.reviews.insertOne({ _id: new ObjectId(), bookingId: new ObjectId(), authorId: requester,
+    subjectUserId: provider, rating: 2, comment: "Earlier", createdAt: new Date(0) });
+  await Promise.all([rebuildAllUserRatings(db), domain.createReview(requester, booking._id, 5, "New")]);
+  const subject = await db.collection("user").findOne({ _id: provider });
+  assert.equal(subject?.rating, 3.5);
+  assert.equal(subject?.numberOfReviews, 2);
+  assert.equal(subject?.reviews.length, 2);
+  const empty = await db.collection("user").findOne({ _id: requester });
+  assert.deepEqual([empty?.rating, empty?.numberOfReviews, empty?.reviews], [0, 0, []]);
+  await rebuildAllUserRatings(db);
+  assert.deepEqual(await db.collection("user").findOne({ _id: provider }), subject);
 });

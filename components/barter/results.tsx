@@ -144,15 +144,12 @@ export function ResultsPanel({
       }
     >
       <h2 className="text-xl font-bold text-black">
-        Looking for “
         {hasSearch
-          ? query
-          : "anything"}
-        ”
+          ? `Search results for “${query.trim()}”`
+          : "Browse services"}
         {zip
           ? ` in ${zip}`
           : ""}
-        .
       </h2>
 
       {services.length === 0 && (

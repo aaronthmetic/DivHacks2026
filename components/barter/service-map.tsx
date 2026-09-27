@@ -179,6 +179,11 @@ function ZipLayer({
 
   const [hoveredZips, setHoveredZips] = useState<string[]>([]);
 
+  const populatedAreas = useMemo(() => {
+    const populatedZips = new Set(services.map((service) => service.zip));
+    return areas.filter((area) => populatedZips.has(area.zip));
+  }, [areas, services]);
+
   useZipOutlines(map, {
     selectedZip,
     hoveredZips,
@@ -192,11 +197,11 @@ function ZipLayer({
       zoom === undefined
         ? []
         : groupNearbyZips(
-            areas,
+            populatedAreas,
             zoom,
             phone ? STACK.phone : STACK.desktop,
           ),
-    [areas, zoom, phone],
+    [populatedAreas, zoom, phone],
   );
 
   return (
@@ -556,26 +561,23 @@ function average(values: number[]) {
 /**
  * A ZIP shows its services.
  * A merged stack shows one card per ZIP.
+ * Prefer photos over placeholders before limiting the visible stack.
  */
 function cardsFor(
   group: Group,
   services: Service[],
 ): (string | undefined)[] {
-  if (group.zips.length > 1) {
-    return group.zips
-      .slice(0, MAX_CARDS)
-      .map((area) =>
-        services.find((service) => service.zip === area.zip)?.images[0],
-      );
-  }
+  const photosForZip = (zip: string) => services
+    .filter((service) => service.zip === zip)
+    .map((service) => service.images.find((image) => image.trim().length > 0));
 
-  return services
-    .filter(
-      (service) =>
-        service.zip === group.zips[0].zip,
-    )
-    .slice(0, MAX_CARDS)
-    .map((service) => service.images[0]);
+  const cards = group.zips.length > 1
+    ? group.zips.map((area) => photosForZip(area.zip).find(Boolean))
+    : photosForZip(group.zips[0].zip);
+
+  return cards
+    .sort((a, b) => Number(Boolean(b)) - Number(Boolean(a)))
+    .slice(0, MAX_CARDS);
 }
 
 function zoomToZips(

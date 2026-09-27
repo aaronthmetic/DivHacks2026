@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import type { Service } from "@/lib/barter/data";
 import { formatAvailability } from "@/lib/availability";
 import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
 import { ServiceArt } from "./results";
+import { useState } from "react";
 
 export function ListingModal({
   service,
@@ -112,51 +113,98 @@ function Rating({ service, className }: { service: Service; className?: string }
 
 // One large photo with two stacked beside it, as in the mockup; fewer photos share the row.
 function Gallery({ service }: { service: Service }) {
-  const [first, second, third] = service.images;
-  const more = service.images.length - 3;
-  if (!first) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const images = service.images ?? [];
+  const imageCount = images.length;
+
+  if (imageCount === 0) {
     return (
       <ServiceArt
         category={service.category}
-        className="mt-6 h-48 rounded-[16px] lg:mt-[37px] lg:h-[300px] lg:rounded-[20px]"
+        className="mt-6 h-48 rounded-[16px] lg:mt-[37px] lg:h-[468px] lg:rounded-[20px]"
         iconClassName="size-16 lg:size-24"
       />
     );
   }
-  const photo = (src: string, index: number) => (
-    // GridFS photos come from the app's image route; the browser loader handles them.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={`${service.title}, photo ${index + 1}`}
-      onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
-      className="size-full rounded-[16px] object-cover lg:rounded-[20px]"
-    />
-  );
+
+  const previousImage = () => {
+    setCurrentIndex((current) =>
+      current === 0 ? imageCount - 1 : current - 1,
+    );
+  };
+
+  const nextImage = () => {
+    setCurrentIndex((current) =>
+      current === imageCount - 1 ? 0 : current + 1,
+    );
+  };
+
   return (
-    <div
-      className={cn(
-        "mt-6 grid h-64 gap-3 lg:mt-[37px] lg:h-[468px] lg:gap-4",
-        third ? "grid-cols-[1.4fr_1fr] grid-rows-2" : second ? "grid-cols-2" : "grid-cols-1",
-      )}
-    >
-      {[first, second, third].map((src, index) =>
-        src ? (
-          <div
-            key={src}
-            className={cn(
-              "relative min-h-0 rounded-[16px] bg-barter-read lg:rounded-[20px]",
-              index === 0 && third && "row-span-2",
-            )}
+    <div className="mt-6 lg:mt-[37px]">
+      <div className="relative h-64 overflow-hidden rounded-[16px] bg-barter-read lg:h-[468px] lg:rounded-[20px]">
+        {/* Current image */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={images[currentIndex]}
+          alt={`${service.title}, photo ${currentIndex + 1}`}
+          onError={(event) => {
+            event.currentTarget.style.visibility = "hidden";
+          }}
+          className="size-full object-contain"
+        />
+
+        {/* Previous button */}
+        {imageCount > 1 && (
+          <button
+            type="button"
+            onClick={previousImage}
+            aria-label="Previous image"
+            className="absolute top-1/2 left-3 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/75 lg:size-12"
           >
-            {photo(src, index)}
-            {index === 2 && more > 0 && (
-              <span className="absolute right-3 bottom-3 rounded-lg bg-black/60 px-2.5 py-1 font-mono text-sm font-bold text-white">
-                +{more}
-              </span>
-            )}
+            <ChevronLeft className="size-6 lg:size-8" />
+          </button>
+        )}
+
+        {/* Next button */}
+        {imageCount > 1 && (
+          <button
+            type="button"
+            onClick={nextImage}
+            aria-label="Next image"
+            className="absolute top-1/2 right-3 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/75 lg:size-12"
+          >
+            <ChevronRight className="size-6 lg:size-8" />
+          </button>
+        )}
+
+        {/* Image counter */}
+        {imageCount > 1 && (
+          <div className="absolute top-3 right-3 rounded-lg bg-black/60 px-3 py-1.5 font-mono text-sm font-bold text-white">
+            {currentIndex + 1} / {imageCount}
           </div>
-        ) : null,
+        )}
+      </div>
+
+      {/* Carousel dots */}
+      {imageCount > 1 && (
+        <div className="mt-3 flex justify-center gap-2">
+          {images.map((_, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => setCurrentIndex(index)}
+              aria-label={`View image ${index + 1}`}
+              aria-current={currentIndex === index ? "true" : undefined}
+              className={cn(
+                "size-2.5 rounded-full transition-all",
+                currentIndex === index
+                  ? "scale-110 bg-barter-navy"
+                  : "bg-barter-line hover:bg-barter-gray",
+              )}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

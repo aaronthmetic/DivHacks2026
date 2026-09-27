@@ -1,7 +1,20 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import type { Notification, ZipArea } from "@/lib/barter/data";
+
+import type {
+  Notification,
+  ZipArea,
+} from "@/lib/barter/data";
+
 import { cn } from "@/lib/utils";
+
+export type ServiceFilters = {
+  categories: string[];
+  zips: string[];
+  minRating: number;
+};
 
 export function NotificationsPanel({
   notifications,
@@ -10,66 +23,206 @@ export function NotificationsPanel({
 }) {
   return (
     <ul className="border-x border-b border-barter-line">
-      {notifications.map((notification) => (
-        <li
-          key={notification.id}
-          className={cn(
-            "flex h-[68px] items-center justify-between gap-4 border-t border-barter-line px-6 text-[15px] lg:px-9",
-            notification.read
-              ? "bg-barter-read text-barter-gray"
-              : "bg-white text-black",
-          )}
-        >
-          <span className="truncate">{notification.text}</span>
-          {!notification.read && (
-            <span className="size-[13px] shrink-0 rounded-full bg-barter-dot">
-              <span className="sr-only">Unread</span>
+      {notifications.map(
+        (notification) => (
+          <li
+            key={notification.id}
+            className={cn(
+              "flex h-[68px] items-center justify-between gap-4 border-t border-barter-line px-6 text-[15px] lg:px-9",
+              notification.read
+                ? "bg-barter-read text-barter-gray"
+                : "bg-white text-black",
+            )}
+          >
+            <span className="truncate">
+              {notification.text}
             </span>
-          )}
-        </li>
-      ))}
+
+            {!notification.read && (
+              <span className="size-[13px] shrink-0 rounded-full bg-barter-dot">
+                <span className="sr-only">
+                  Unread
+                </span>
+              </span>
+            )}
+          </li>
+        ),
+      )}
     </ul>
   );
 }
 
-const RATINGS = ["Any rating", "3+ stars", "4+ stars", "4.5+ stars"];
+const RATINGS = [
+  {
+    label: "Any rating",
+    value: 0,
+  },
+  {
+    label: "3+ stars",
+    value: 3,
+  },
+  {
+    label: "4+ stars",
+    value: 4,
+  },
+  {
+    label: "4.5+ stars",
+    value: 4.5,
+  },
+];
 
-// Static options for now: nothing filters yet.
 export function FiltersPanel({
   genres,
   zips,
+  filters,
+  onChange,
 }: {
   genres: string[];
   zips: ZipArea[];
+  filters: ServiceFilters;
+  onChange: (
+    filters: ServiceFilters,
+  ) => void;
 }) {
+  function toggleGenre(
+    genre: string,
+  ) {
+    const currentlySelected =
+      filters.categories.includes(
+        genre,
+      );
+
+    onChange({
+      ...filters,
+      categories: currentlySelected
+        ? filters.categories.filter(
+            (category) =>
+              category !== genre,
+          )
+        : [
+            ...filters.categories,
+            genre,
+          ],
+    });
+  }
+
+  function toggleZip(zip: string) {
+    const currentlySelected =
+      filters.zips.includes(zip);
+
+    onChange({
+      ...filters,
+      zips: currentlySelected
+        ? filters.zips.filter(
+            (currentZip) =>
+              currentZip !== zip,
+          )
+        : [...filters.zips, zip],
+    });
+  }
+
+  function setRating(
+    minRating: number,
+  ) {
+    onChange({
+      ...filters,
+      minRating,
+    });
+  }
+
+  function clearFilters() {
+    onChange({
+      categories: [],
+      zips: [],
+      minRating: 0,
+    });
+  }
+
+  const hasFilters =
+    filters.categories.length > 0 ||
+    filters.zips.length > 0 ||
+    filters.minRating > 0;
+
   return (
-    <div className="border-x border-b border-barter-line">
+    <div className="border-x border-b border-barter-line bg-white">
+      {/* GENRE */}
       <FilterSection title="Genre">
         {genres.map((genre) => (
-          <Option key={genre} type="checkbox" name="genre" label={genre} />
-        ))}
-      </FilterSection>
-      <FilterSection title="Location">
-        {zips.map(({ zip, neighborhood }) => (
           <Option
-            key={zip}
+            key={genre}
             type="checkbox"
-            name="zip"
-            label={`${zip} · ${neighborhood}`}
+            name="genre"
+            label={genre}
+            checked={filters.categories.includes(
+              genre,
+            )}
+            onChange={() =>
+              toggleGenre(genre)
+            }
           />
         ))}
       </FilterSection>
+
+      {/* LOCATION */}
+      <FilterSection title="Location">
+        {zips.map(
+          ({
+            zip,
+            neighborhood,
+          }) => (
+            <Option
+              key={zip}
+              type="checkbox"
+              name="zip"
+              label={
+                neighborhood
+                  ? `${zip} · ${neighborhood}`
+                  : zip
+              }
+              checked={filters.zips.includes(
+                zip,
+              )}
+              onChange={() =>
+                toggleZip(zip)
+              }
+            />
+          ),
+        )}
+      </FilterSection>
+
+      {/* RATING */}
       <FilterSection title="Rating">
-        {RATINGS.map((rating, index) => (
-          <Option
-            key={rating}
-            type="radio"
-            name="rating"
-            label={rating}
-            defaultChecked={index === 0}
-          />
-        ))}
+        {RATINGS.map(
+          ({ label, value }) => (
+            <Option
+              key={value}
+              type="radio"
+              name="rating"
+              label={label}
+              checked={
+                filters.minRating ===
+                value
+              }
+              onChange={() =>
+                setRating(value)
+              }
+            />
+          ),
+        )}
       </FilterSection>
+
+      {/* CLEAR FILTERS */}
+      {hasFilters && (
+        <div className="border-t border-barter-line px-6 py-5">
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-[15px] font-medium text-barter-navy underline underline-offset-4"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -85,13 +238,17 @@ function FilterSection({
     <details className="group border-t border-barter-line">
       <summary className="flex h-[67px] cursor-pointer list-none items-center justify-between px-6 text-[15px] text-black [&::-webkit-details-marker]:hidden">
         {title}
+
         <ChevronDown
           aria-hidden
           className="size-7 text-[#636363] transition-transform group-open:rotate-180"
           strokeWidth={1.25}
         />
       </summary>
-      <div className="flex flex-col gap-3 px-6 pb-5">{children}</div>
+
+      <div className="flex max-h-[260px] flex-col gap-3 overflow-y-auto px-6 pb-5">
+        {children}
+      </div>
     </details>
   );
 }
@@ -100,22 +257,26 @@ function Option({
   type,
   name,
   label,
-  defaultChecked,
+  checked,
+  onChange,
 }: {
   type: "checkbox" | "radio";
   name: string;
   label: string;
-  defaultChecked?: boolean;
+  checked: boolean;
+  onChange: () => void;
 }) {
   return (
-    <label className="flex items-center gap-3 text-[15px] text-black">
+    <label className="flex cursor-pointer items-center gap-3 text-[15px] text-black">
       <input
         type={type}
         name={name}
-        defaultChecked={defaultChecked}
-        className="size-4 accent-barter-navy"
+        checked={checked}
+        onChange={onChange}
+        className="size-4 shrink-0 accent-barter-navy"
       />
-      {label}
+
+      <span>{label}</span>
     </label>
   );
 }

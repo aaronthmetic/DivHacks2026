@@ -1,6 +1,18 @@
-import { ObjectId, WithId, type Db } from "mongodb";
-import { snapshotService, validateScheduledAt } from "./booking-snapshot";
-import { calculateCredits } from "./exchange-service";
+import {
+  ObjectId,
+  WithId,
+  type Db,
+} from "mongodb";
+
+import {
+  snapshotService,
+  validateScheduledAt,
+} from "./booking-snapshot";
+
+import {
+  calculateCredits,
+} from "./exchange-service";
+
 import {
   exchangeCollections,
   type Genre,
@@ -11,9 +23,11 @@ import {
   type Review,
 } from "./exchange-schema";
 
-// Low-level document helpers. They skip the validation, transactions and credit holds in
-// exchange-service.ts, so user-facing flows (bookings, settlement, reviews) should go
-// through createExchangeService instead.
+// Low-level document helpers.
+// They skip the validation, transactions,
+// and credit holds in exchange-service.ts,
+// so user-facing flows should go through
+// createExchangeService instead where appropriate.
 
 export async function addGenre(
   db: Db,
@@ -22,19 +36,27 @@ export async function addGenre(
     slug: string;
     description?: string;
     isActive?: boolean;
-  }
+  },
 ) {
-  const { genres } = exchangeCollections(db);
+  const { genres } =
+    exchangeCollections(db);
 
   const genre: Genre = {
     _id: new ObjectId(),
+
     name: data.name,
     slug: data.slug,
-    description: data.description ?? "",
-    isActive: data.isActive ?? true,
+
+    description:
+      data.description ?? "",
+
+    isActive:
+      data.isActive ?? true,
   };
 
-  await genres.insertOne(genre);
+  await genres.insertOne(
+    genre,
+  );
 
   return genre;
 }
@@ -66,36 +88,59 @@ export interface AddServiceInput {
 
 export async function addService(
   db: Db,
-  input: AddServiceInput
+  input: AddServiceInput,
 ): Promise<WithId<Service>> {
   const now = new Date();
 
   const service: Service = {
     _id: new ObjectId(),
-    userId: new ObjectId(input.userId),
-    genreId: new ObjectId(input.genreId),
+
+    userId: new ObjectId(
+      input.userId,
+    ),
+
+    genreId: new ObjectId(
+      input.genreId,
+    ),
 
     title: input.title,
-    description: input.description,
+    description:
+      input.description,
 
-    zipCode: input.zipCode,
-    countryCode: input.countryCode,
+    zipCode:
+      input.zipCode,
 
-    deliveryMode: input.deliveryMode,
-    pricingType: input.pricingType,
+    countryCode:
+      input.countryCode,
 
-    creditRate: input.creditRate,
+    deliveryMode:
+      input.deliveryMode,
+
+    pricingType:
+      input.pricingType,
+
+    creditRate:
+      input.creditRate,
+
     status: "active",
 
-    // Always create the images field
-    images: input.images ?? [],
+    // Always create the
+    // images field.
+    images:
+      input.images ?? [],
 
     createdAt: now,
     updatedAt: now,
   };
 
-  // Same collection the domain service and bookings read ("service", not "services").
-  await exchangeCollections(db).services.insertOne(service);
+  // Same collection the domain
+  // service and bookings read:
+  // "service", not "services".
+  await exchangeCollections(
+    db,
+  ).services.insertOne(
+    service,
+  );
 
   return service;
 }
@@ -103,51 +148,95 @@ export async function addService(
 export async function addBooking(
   db: Db,
   data: {
-    serviceId: string | ObjectId;
-    requesterId: string | ObjectId;
+    serviceId:
+      | string
+      | ObjectId;
+
+    requesterId:
+      | string
+      | ObjectId;
+
     durationMinutes?: number;
     scheduledAt?: Date;
-  }
+  },
 ) {
-  const { services, bookings } = exchangeCollections(db);
+  const {
+    services,
+    bookings,
+  } = exchangeCollections(db);
 
   const serviceId =
-    typeof data.serviceId === "string"
-      ? new ObjectId(data.serviceId)
+    typeof data.serviceId ===
+    "string"
+      ? new ObjectId(
+          data.serviceId,
+        )
       : data.serviceId;
 
   const requesterId =
-    typeof data.requesterId === "string"
-      ? new ObjectId(data.requesterId)
+    typeof data.requesterId ===
+    "string"
+      ? new ObjectId(
+          data.requesterId,
+        )
       : data.requesterId;
 
-  const service = await services.findOne({
-    _id: serviceId,
-    status: "active",
-  });
+  const service =
+    await services.findOne({
+      _id: serviceId,
+      status: "active",
+    });
 
   if (!service) {
-    throw new Error("Service not found");
+    throw new Error(
+      "Service not found",
+    );
   }
 
-  validateScheduledAt(data.scheduledAt);
-  const totalCredits = calculateCredits(service.pricingType, service.creditRate, data.durationMinutes);
+  validateScheduledAt(
+    data.scheduledAt,
+  );
+
+  const totalCredits =
+    calculateCredits(
+      service.pricingType,
+      service.creditRate,
+      data.durationMinutes,
+    );
 
   const now = new Date();
 
   const booking: Booking = {
     _id: new ObjectId(),
 
-    serviceId: service._id,
-    providerId: service.userId,
+    serviceId:
+      service._id,
+
+    providerId:
+      service.userId,
+
     requesterId,
 
-    // Save the current service information so later edits to
-    // the service don't change the historical booking.
-    serviceSnapshot: snapshotService(service),
-    ...(service.pricingType === "hourly" ? { durationMinutes: data.durationMinutes } : {}),
+    // Save the current service
+    // information so later edits
+    // don't alter booking history.
+    serviceSnapshot:
+      snapshotService(
+        service,
+      ),
+
+    ...(service.pricingType ===
+    "hourly"
+      ? {
+          durationMinutes:
+            data.durationMinutes,
+        }
+      : {}),
+
     totalCredits,
-    scheduledAt: data.scheduledAt,
+
+    scheduledAt:
+      data.scheduledAt,
 
     status: "requested",
 
@@ -155,18 +244,22 @@ export async function addBooking(
     updatedAt: now,
   };
 
-  await bookings.insertOne(booking);
+  await bookings.insertOne(
+    booking,
+  );
 
   return booking;
 }
 
-
 export async function createCreditAccount(
   db: Db,
-  userId: string | ObjectId,
-  startingCredits = 0
+  userId:
+    | string
+    | ObjectId,
+  startingCredits = 0,
 ) {
-  const { accounts } = exchangeCollections(db);
+  const { accounts } =
+    exchangeCollections(db);
 
   const now = new Date();
 
@@ -174,28 +267,37 @@ export async function createCreditAccount(
     _id: new ObjectId(),
 
     userId:
-      typeof userId === "string"
+      typeof userId ===
+      "string"
         ? new ObjectId(userId)
         : userId,
 
-    availableCredits: startingCredits,
+    availableCredits:
+      startingCredits,
+
     heldCredits: 0,
 
     createdAt: now,
     updatedAt: now,
   };
 
-  await accounts.insertOne(account);
+  await accounts.insertOne(
+    account,
+  );
 
   return account;
 }
 
-
 export async function addCreditTransaction(
   db: Db,
   data: {
-    accountId: string | ObjectId;
-    bookingId?: string | ObjectId;
+    accountId:
+      | string
+      | ObjectId;
+
+    bookingId?:
+      | string
+      | ObjectId;
 
     type:
       | "welcome"
@@ -208,93 +310,142 @@ export async function addCreditTransaction(
     heldDelta: number;
 
     idempotencyKey: string;
-  }
+  },
 ) {
-  const { transactions } = exchangeCollections(db);
+  const {
+    transactions,
+  } = exchangeCollections(db);
 
-  const transaction: CreditTransaction = {
-    _id: new ObjectId(),
+  const transaction: CreditTransaction =
+    {
+      _id: new ObjectId(),
 
-    accountId:
-      typeof data.accountId === "string"
-        ? new ObjectId(data.accountId)
-        : data.accountId,
+      accountId:
+        typeof data.accountId ===
+        "string"
+          ? new ObjectId(
+              data.accountId,
+            )
+          : data.accountId,
 
-    bookingId: data.bookingId
-      ? typeof data.bookingId === "string"
-        ? new ObjectId(data.bookingId)
-        : data.bookingId
-      : undefined,
+      bookingId:
+        data.bookingId
+          ? typeof data.bookingId ===
+            "string"
+            ? new ObjectId(
+                data.bookingId,
+              )
+            : data.bookingId
+          : undefined,
 
-    type: data.type,
+      type: data.type,
 
-    availableDelta: data.availableDelta,
-    heldDelta: data.heldDelta,
+      availableDelta:
+        data.availableDelta,
 
-    idempotencyKey: data.idempotencyKey,
+      heldDelta:
+        data.heldDelta,
 
-    createdAt: new Date(),
-  };
+      idempotencyKey:
+        data.idempotencyKey,
 
-  await transactions.insertOne(transaction);
+      createdAt:
+        new Date(),
+    };
+
+  await transactions.insertOne(
+    transaction,
+  );
 
   return transaction;
 }
 
-
 export async function addReview(
   db: Db,
   data: {
-    bookingId: string | ObjectId;
-    authorId: string | ObjectId;
-    subjectUserId: string | ObjectId;
+    bookingId:
+      | string
+      | ObjectId;
+
+    authorId:
+      | string
+      | ObjectId;
+
+    subjectUserId:
+      | string
+      | ObjectId;
+
     rating: number;
     comment: string;
-  }
+  },
 ) {
-  const { reviews } = exchangeCollections(db);
+  const { reviews } =
+    exchangeCollections(db);
 
-  if (data.rating < 1 || data.rating > 5) {
-    throw new Error("Rating must be between 1 and 5");
+  if (
+    data.rating < 1 ||
+    data.rating > 5
+  ) {
+    throw new Error(
+      "Rating must be between 1 and 5",
+    );
   }
 
   const review: Review = {
     _id: new ObjectId(),
 
     bookingId:
-      typeof data.bookingId === "string"
-        ? new ObjectId(data.bookingId)
+      typeof data.bookingId ===
+      "string"
+        ? new ObjectId(
+            data.bookingId,
+          )
         : data.bookingId,
 
     authorId:
-      typeof data.authorId === "string"
-        ? new ObjectId(data.authorId)
+      typeof data.authorId ===
+      "string"
+        ? new ObjectId(
+            data.authorId,
+          )
         : data.authorId,
 
     subjectUserId:
-      typeof data.subjectUserId === "string"
-        ? new ObjectId(data.subjectUserId)
+      typeof data.subjectUserId ===
+      "string"
+        ? new ObjectId(
+            data.subjectUserId,
+          )
         : data.subjectUserId,
 
     rating: data.rating,
-    comment: data.comment,
 
-    createdAt: new Date(),
+    comment:
+      data.comment,
+
+    createdAt:
+      new Date(),
   };
 
-  await reviews.insertOne(review);
+  await reviews.insertOne(
+    review,
+  );
 
   return review;
 }
 
 export async function initializeUserExchangeFields(
   db: Db,
-  userId: string | ObjectId
+  userId:
+    | string
+    | ObjectId,
 ) {
-  const users = db.collection("user");
+  const users =
+    db.collection("user");
 
   const _id =
-    typeof userId === "string"
+    typeof userId ===
+    "string"
       ? new ObjectId(userId)
       : userId;
 
@@ -306,23 +457,27 @@ export async function initializeUserExchangeFields(
         numberOfReviews: 0,
         reviews: [],
       },
-    }
+    },
   );
 }
 
 export async function updateUserExchangeProfile(
   db: Db,
-  userId: string | ObjectId,
+  userId:
+    | string
+    | ObjectId,
   data: {
     bio?: string;
     zipCode?: string;
     countryCode?: string;
-  }
+  },
 ) {
-  const users = db.collection("user");
+  const users =
+    db.collection("user");
 
   const _id =
-    typeof userId === "string"
+    typeof userId ===
+    "string"
       ? new ObjectId(userId)
       : userId;
 
@@ -330,45 +485,59 @@ export async function updateUserExchangeProfile(
     { _id },
     {
       $set: data,
-    }
+    },
   );
 }
 
 export async function appendReviewToUser(
   db: Db,
-  userId: string | ObjectId,
+  userId:
+    | string
+    | ObjectId,
   reviewId: ObjectId,
-  newRating: number
+  newRating: number,
 ) {
-  const users = db.collection<{
-    rating?: number;
-    numberOfReviews?: number;
-    reviews?: string[];
-  }>("user");
+  const users =
+    db.collection<{
+      rating?: number;
+      numberOfReviews?: number;
+      reviews?: string[];
+    }>("user");
 
   const _id =
-    typeof userId === "string"
+    typeof userId ===
+    "string"
       ? new ObjectId(userId)
       : userId;
 
-  const user = await users.findOne({ _id });
+  const user =
+    await users.findOne({
+      _id,
+    });
 
   if (!user) {
-    throw new Error("User not found");
+    throw new Error(
+      "User not found",
+    );
   }
 
-  const oldRating = user.rating ?? 0;
-  const oldCount = user.numberOfReviews ?? 0;
+  const oldRating =
+    user.rating ?? 0;
+
+  const oldCount =
+    user.numberOfReviews ?? 0;
 
   const newAverage =
-    (oldRating * oldCount + newRating) /
+    (oldRating * oldCount +
+      newRating) /
     (oldCount + 1);
 
   await users.updateOne(
     { _id },
     {
       $set: {
-        rating: newAverage,
+        rating:
+          newAverage,
       },
 
       $inc: {
@@ -376,8 +545,9 @@ export async function appendReviewToUser(
       },
 
       $push: {
-        reviews: reviewId.toHexString(),
+        reviews:
+          reviewId.toHexString(),
       },
-    }
+    },
   );
 }

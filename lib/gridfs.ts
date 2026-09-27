@@ -1,84 +1,147 @@
-import { GridFSBucket, ObjectId } from "mongodb";
-import { getMongo } from "./mongodb";
+import {
+  GridFSBucket,
+  ObjectId,
+} from "mongodb";
+
+import { getMongo } from "@/lib/mongodb";
+
+const IMAGE_BUCKET_NAME =
+  "images";
 
 export async function getImageBucket(): Promise<GridFSBucket> {
-  const { db } = await getMongo();
+  const { db } =
+    await getMongo();
 
   return new GridFSBucket(db, {
-    bucketName: "images",
+    bucketName:
+      IMAGE_BUCKET_NAME,
   });
 }
 
-export async function uploadImage(file: File): Promise<ObjectId> {
-  if (!file.type.startsWith("image/")) {
-    throw new Error(`${file.name} is not an image.`);
-  }
+export async function uploadImage(
+  file: File,
+): Promise<ObjectId> {
+  const bucket =
+    await getImageBucket();
 
-  const bucket = await getImageBucket();
+  const buffer = Buffer.from(
+    await file.arrayBuffer(),
+  );
 
-  const buffer = Buffer.from(await file.arrayBuffer());
+  return new Promise<
+    ObjectId
+  >((resolve, reject) => {
+    const uploadStream =
+      bucket.openUploadStream(
+        file.name,
+        {
+          metadata: {
+            contentType:
+              file.type ||
+              "application/octet-stream",
+          },
+        },
+      );
 
-  const stream = bucket.openUploadStream(file.name, {
-    metadata: {
-      contentType: file.type,
-    },
+    uploadStream.on(
+      "error",
+      reject,
+    );
+
+    uploadStream.on(
+      "finish",
+      () => {
+        resolve(
+          uploadStream.id,
+        );
+      },
+    );
+
+    uploadStream.end(buffer);
   });
-
-  await new Promise<void>((resolve, reject) => {
-    stream.on("finish", resolve);
-    stream.on("error", reject);
-    stream.end(buffer);
-  });
-
-  return stream.id;
 }
 
-/*
- * Pull a single image from GridFS
- */
+export async function deleteImage(
+  imageId:
+    | ObjectId
+    | string,
+): Promise<void> {
+  const bucket =
+    await getImageBucket();
+
+  const id =
+    typeof imageId ===
+    "string"
+      ? new ObjectId(imageId)
+      : imageId;
+
+  await bucket.delete(id);
+}
+
+export async function getImageStream(
+  imageId:
+    | ObjectId
+    | string,
+) {
+  const bucket =
+    await getImageBucket();
+
+  const id =
+    typeof imageId ===
+    "string"
+      ? new ObjectId(imageId)
+      : imageId;
+
+  return bucket.openDownloadStream(
+    id,
+  );
+}
+
 export async function getImage(
-  imageId: ObjectId
+  imageId: ObjectId,
 ): Promise<Buffer> {
-  const bucket = await getImageBucket();
+  const stream =
+    await getImageStream(
+      imageId,
+    );
 
   const chunks: Buffer[] = [];
 
-  const stream = bucket.openDownloadStream(imageId);
+  for await (const chunk of stream) {
+    chunks.push(
+      Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(chunk),
+    );
+  }
 
-  return new Promise((resolve, reject) => {
-    stream.on("data", (chunk) => {
-      chunks.push(Buffer.from(chunk));
-    });
-
-    stream.on("end", () => {
-      resolve(Buffer.concat(chunks));
-    });
-
-    stream.on("error", reject);
-  });
+  return Buffer.concat(chunks);
 }
 
-/*
- * Pull every image belonging to a service
- */
 export async function getServiceImages(
-  service: { images: ObjectId[] }
+  service: {
+    images?: ObjectId[];
+  },
 ): Promise<Buffer[]> {
   return Promise.all(
-    service.images.map((imageId) =>
-      getImage(imageId)
-    )
+    (service.images ?? []).map(
+      (imageId) =>
+        getImage(imageId),
+    ),
   );
 }
 
 export function getServiceImageUrls(
-  service: { images?: ObjectId[] }
+  service: {
+    images?: Array<
+      ObjectId | string
+    >;
+  },
 ): string[] {
-  if (!service.images) {
-    return [];
-  }
-
-  return service.images.map(
-    (imageId) => `/api/images/${imageId.toString()}`
+  return (
+    service.images ?? []
+  ).map(
+    (imageId) =>
+      `/api/images/${imageId.toString()}`,
   );
 }

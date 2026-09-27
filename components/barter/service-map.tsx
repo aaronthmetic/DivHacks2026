@@ -8,29 +8,53 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import {
-  AdvancedMarker,
   APILoadingStatus,
   APIProvider,
   Map as GoogleMap,
   useApiLoadingStatus,
   useMap,
 } from "@vis.gl/react-google-maps";
+
 import type { Service, ZipArea } from "@/lib/barter/data";
 import boundaries from "@/lib/barter/zip-boundaries.json";
 import { cn } from "@/lib/utils";
 import { ServiceArt } from "./results";
 
-// Advanced Markers (custom HTML markers) need a Map ID. Google's demo ID works
-// for development; GOOGLE_MAPS_MAP_ID can point at a styled one (see README).
-const DEMO_MAP_ID = "DEMO_MAP_ID";
-const HIGHLIGHT = "#2ca3ff"; // --color-barter-blue
+const HIGHLIGHT = "#2ca3ff";
 const MAX_CARDS = 3;
+
 // On-screen size of a card stack, used to decide when stacks would overlap.
 const STACK = {
   desktop: { width: 130, height: 128 },
   phone: { width: 100, height: 100 },
 };
+
+const NYC_MAP_BOUNDS = {
+  north: 40.93,
+  south: 40.49,
+  east: -73.68,
+  west: -74.27,
+};
+
+const MIN_ZOOM = 10;
+const MAX_ZOOM = 18;
+
+/**
+ * Because this map does NOT use a Map ID, normal Google Maps JSON styles
+ * work again.
+ *
+ * Hide all POIs / landmarks while leaving roads, neighborhood labels,
+ * geographic labels, etc. visible.
+ */
+const MAP_STYLES: google.maps.MapTypeStyle[] = [
+  {
+    featureType: "poi",
+    elementType: "all",
+    stylers: [{ visibility: "off" }],
+  },
+];
 
 type Group = {
   key: string;
@@ -40,7 +64,6 @@ type Group = {
 
 export default function ServiceMap({
   apiKey,
-  mapId,
   areas,
   services,
   initialZip,
@@ -48,12 +71,15 @@ export default function ServiceMap({
   onToggleZip,
 }: {
   apiKey: string | undefined;
-  mapId: string | undefined;
   areas: ZipArea[];
   services: Service[];
   initialZip: string | null;
   selectedZip: string | null;
-  /** Should keep the same identity across renders; it's a map listener dependency. */
+
+  /**
+   * Should keep the same identity across renders;
+   * it's a map listener dependency.
+   */
   onToggleZip: (zip: string) => void;
 }) {
   if (!apiKey) {
@@ -63,10 +89,10 @@ export default function ServiceMap({
       </MapNotice>
     );
   }
+
   return (
     <APIProvider apiKey={apiKey}>
       <ZipMap
-        mapId={mapId || DEMO_MAP_ID}
         areas={areas}
         services={services}
         initialZip={initialZip}
@@ -78,14 +104,12 @@ export default function ServiceMap({
 }
 
 function ZipMap({
-  mapId,
   areas,
   services,
   initialZip,
   selectedZip,
   onToggleZip,
 }: {
-  mapId: string;
   areas: ZipArea[];
   services: Service[];
   initialZip: string | null;
@@ -93,31 +117,39 @@ function ZipMap({
   onToggleZip: (zip: string) => void;
 }) {
   const status = useApiLoadingStatus();
+
   const [phone] = useState(
     () => !window.matchMedia("(min-width: 1024px)").matches,
   );
+
   if (
     status === APILoadingStatus.FAILED ||
     status === APILoadingStatus.AUTH_FAILURE
   ) {
     return (
       <MapNotice>
-        Google Maps didn’t load. Check that GOOGLE_MAPS_API_KEY is valid and
-        has the Maps JavaScript API enabled.
+        Google Maps didn&apos;t load. Check that GOOGLE_MAPS_API_KEY is valid
+        and has the Maps JavaScript API enabled.
       </MapNotice>
     );
   }
+
   return (
     <GoogleMap
-      mapId={mapId}
       defaultBounds={initialBounds(areas, initialZip, phone)}
+      minZoom={MIN_ZOOM}
+      maxZoom={MAX_ZOOM}
+      restriction={{
+        latLngBounds: NYC_MAP_BOUNDS,
+        strictBounds: true,
+      }}
       // Without this, fitting bounds rounds down to a whole zoom level and
       // shows far more area than asked for.
       isFractionalZoomEnabled
       disableDefaultUI
       clickableIcons={false}
       gestureHandling="greedy"
-      style={{ width: "100%", height: "100%" }}
+      styles={MAP_STYLES}
     >
       <ZipLayer
         areas={areas}
@@ -145,6 +177,7 @@ function ZipLayer({
 }) {
   const map = useMap();
   const zoom = useMapZoom(map);
+
   const [hoveredZips, setHoveredZips] = useState<string[]>([]);
 
   useZipOutlines(map, {
@@ -159,46 +192,200 @@ function ZipLayer({
     () =>
       zoom === undefined
         ? []
-        : groupNearbyZips(areas, zoom, phone ? STACK.phone : STACK.desktop),
+        : groupNearbyZips(
+            areas,
+            zoom,
+            phone ? STACK.phone : STACK.desktop,
+          ),
     [areas, zoom, phone],
   );
 
-  return groups.map((group) => {
-    const zips = group.zips.map((area) => area.zip);
-    const merged = zips.length > 1;
-    const selected = selectedZip !== null && zips.includes(selectedZip);
-    const hovered = hoveredZips.some((zip) => zips.includes(zip));
-    return (
-      <AdvancedMarker
-        key={group.key}
-        position={group.position}
-        title={merged ? `${zips.length} areas: ${zips.join(", ")}` : `ZIP ${zips[0]}`}
-        zIndex={selected ? 3 : hovered ? 2 : 1}
-        onMouseEnter={() => setHoveredZips(zips)}
-        onMouseLeave={() => setHoveredZips([])}
-        onClick={() =>
-          merged ? zoomToZips(map, group.zips, phone) : onToggleZip(zips[0])
+  return (
+    <>
+      {groups.map((group) => {
+        const zips = group.zips.map((area) => area.zip);
+        const merged = zips.length > 1;
+
+        const selected =
+          selectedZip !== null && zips.includes(selectedZip);
+
+        const hovered = hoveredZips.some((zip) => zips.includes(zip));
+
+        return (
+          <OverlayMarker
+            key={group.key}
+            position={group.position}
+            title={
+              merged
+                ? `${zips.length} areas: ${zips.join(", ")}`
+                : `ZIP ${zips[0]}`
+            }
+            zIndex={selected ? 3 : hovered ? 2 : 1}
+            onMouseEnter={() => setHoveredZips(zips)}
+            onMouseLeave={() => setHoveredZips([])}
+            onClick={() => {
+              if (merged) {
+                zoomToZips(map, group.zips, phone);
+              } else {
+                onToggleZip(zips[0]);
+              }
+            }}
+          >
+            <CardStack
+              cards={cardsFor(group, services)}
+              label={merged ? `${zips.length} areas` : zips[0]}
+              selected={selected}
+            />
+          </OverlayMarker>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Custom marker implementation that does not require a Google Maps Map ID.
+ *
+ * AdvancedMarker requires a Map ID, so this uses the traditional
+ * google.maps.OverlayView API instead.
+ */
+function OverlayMarker({
+  position,
+  title,
+  zIndex = 1,
+  onClick,
+  onMouseEnter,
+  onMouseLeave,
+  children,
+}: {
+  position: google.maps.LatLngLiteral;
+  title?: string;
+  zIndex?: number;
+  onClick?: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  children: ReactNode;
+}) {
+  const map = useMap();
+
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+
+  /**
+   * Create a DOM container for React to portal the marker into.
+   */
+  useEffect(() => {
+    const element = document.createElement("div");
+
+    element.style.position = "absolute";
+    element.style.transform = "translate(-50%, -100%)";
+    element.style.pointerEvents = "auto";
+    element.style.userSelect = "none";
+
+    setContainer(element);
+
+    return () => {
+      element.remove();
+      setContainer(null);
+    };
+  }, []);
+
+  /**
+   * Attach the custom overlay to Google Maps.
+   */
+  useEffect(() => {
+    if (!map || !container) return;
+
+    class ReactOverlay extends google.maps.OverlayView {
+      onAdd() {
+        const panes = this.getPanes();
+
+        if (!panes) return;
+
+        /**
+         * overlayMouseTarget is used instead of overlayLayer so the
+         * React marker receives mouse events.
+         */
+        panes.overlayMouseTarget.appendChild(container);
+      }
+
+      draw() {
+        const projection = this.getProjection();
+
+        if (!projection) return;
+
+        const point = projection.fromLatLngToDivPixel(
+          new google.maps.LatLng(position.lat, position.lng),
+        );
+
+        if (!point) return;
+
+        container.style.left = `${point.x}px`;
+        container.style.top = `${point.y}px`;
+      }
+
+      onRemove() {
+        container.remove();
+      }
+    }
+
+    const overlay = new ReactOverlay();
+
+    overlay.setMap(map);
+
+    return () => {
+      overlay.setMap(null);
+    };
+  }, [map, container, position.lat, position.lng]);
+
+  /**
+   * Keep marker stacking synced with hover/selection.
+   */
+  useEffect(() => {
+    if (!container) return;
+
+    container.style.zIndex = String(zIndex);
+  }, [container, zIndex]);
+
+  if (!container) return null;
+
+  return createPortal(
+    <div
+      title={title}
+      role="button"
+      tabIndex={0}
+      className="cursor-pointer"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClick?.();
         }
-      >
-        <CardStack
-          cards={cardsFor(group, services)}
-          label={merged ? `${zips.length} areas` : zips[0]}
-          selected={selected}
-        />
-      </AdvancedMarker>
-    );
-  });
+      }}
+    >
+      {children}
+    </div>,
+    container,
+  );
 }
 
 function useMapZoom(map: google.maps.Map | null) {
   const subscribe = useCallback(
     (onChange: () => void) => {
       if (!map) return () => {};
+
       const listener = map.addListener("zoom_changed", onChange);
+
       return () => listener.remove();
     },
     [map],
   );
+
   return useSyncExternalStore(
     subscribe,
     () => map?.getZoom(),
@@ -206,8 +393,10 @@ function useMapZoom(map: google.maps.Map | null) {
   );
 }
 
-// Zip outlines stay nearly transparent until hovered or selected, so the
-// whole area can be hovered and clicked, not just the card.
+/**
+ * ZIP outlines stay nearly transparent until hovered or selected,
+ * so the whole area can be hovered and clicked, not just the card.
+ */
 function useZipOutlines(
   map: google.maps.Map | null,
   {
@@ -224,35 +413,58 @@ function useZipOutlines(
 ) {
   useEffect(() => {
     if (!map) return;
+
     const features = map.data.addGeoJson(boundaries);
+
     const zipOf = (event: google.maps.Data.MouseEvent) =>
       String(event.feature.getProperty("zip"));
+
     const listeners = [
-      map.data.addListener("mouseover", (event: google.maps.Data.MouseEvent) =>
-        onHover([zipOf(event)]),
+      map.data.addListener(
+        "mouseover",
+        (event: google.maps.Data.MouseEvent) => {
+          onHover([zipOf(event)]);
+        },
       ),
-      map.data.addListener("mouseout", () => onHover([])),
-      map.data.addListener("click", (event: google.maps.Data.MouseEvent) =>
-        onToggle(zipOf(event)),
+
+      map.data.addListener("mouseout", () => {
+        onHover([]);
+      }),
+
+      map.data.addListener(
+        "click",
+        (event: google.maps.Data.MouseEvent) => {
+          onToggle(zipOf(event));
+        },
       ),
     ];
+
     return () => {
       listeners.forEach((listener) => listener.remove());
-      features.forEach((feature) => map.data.remove(feature));
+
+      features.forEach((feature) => {
+        map.data.remove(feature);
+      });
     };
   }, [map, onHover, onToggle]);
 
   useEffect(() => {
     if (!map) return;
+
     map.data.setStyle((feature) => {
       const zip = String(feature.getProperty("zip"));
-      const active = zip === selectedZip || hoveredZips.includes(zip);
+
+      const active =
+        zip === selectedZip || hoveredZips.includes(zip);
+
       return {
         fillColor: HIGHLIGHT,
         fillOpacity: active ? 0.3 : 0.001,
+
         strokeColor: HIGHLIGHT,
         strokeOpacity: active ? 1 : 0,
         strokeWeight: 2,
+
         cursor: "pointer",
       };
     });
@@ -262,22 +474,42 @@ function useZipOutlines(
 function groupNearbyZips(
   areas: ZipArea[],
   zoom: number,
-  stack: { width: number; height: number },
+  stack: {
+    width: number;
+    height: number;
+  },
 ): Group[] {
-  const groups: { zips: ZipArea[]; x: number; y: number }[] = [];
+  const groups: {
+    zips: ZipArea[];
+    x: number;
+    y: number;
+  }[] = [];
+
   for (const area of areas) {
     const { x, y } = toScreenPixels(area, zoom);
+
     const near = groups.find(
       (group) =>
         Math.abs(group.x - x) < stack.width &&
         Math.abs(group.y - y) < stack.height,
     );
-    if (near) near.zips.push(area);
-    else groups.push({ zips: [area], x, y });
+
+    if (near) {
+      near.zips.push(area);
+    } else {
+      groups.push({
+        zips: [area],
+        x,
+        y,
+      });
+    }
   }
+
   return groups.map(({ zips }) => ({
     key: zips.map((area) => area.zip).join("-"),
+
     zips,
+
     position: {
       lat: average(zips.map((area) => area.lat)),
       lng: average(zips.map((area) => area.lng)),
@@ -285,31 +517,63 @@ function groupNearbyZips(
   }));
 }
 
-// Web Mercator: a point's pixel position on the whole world map at `zoom`.
-function toScreenPixels({ lat, lng }: ZipArea, zoom: number) {
+/**
+ * Web Mercator:
+ * a point's pixel position on the whole world map at `zoom`.
+ */
+function toScreenPixels(
+  {
+    lat,
+    lng,
+  }: ZipArea,
+  zoom: number,
+) {
   const size = 256 * 2 ** zoom;
+
   const sin = Math.sin((lat * Math.PI) / 180);
+
   return {
     x: ((lng + 180) / 360) * size,
-    y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size,
+
+    y:
+      (0.5 -
+        Math.log((1 + sin) / (1 - sin)) /
+          (4 * Math.PI)) *
+      size,
   };
 }
 
 function average(values: number[]) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+  return (
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
+  );
 }
 
-// A zip shows its services; a merged stack shows one card per zip.
-function cardsFor(group: Group, services: Service[]): string[] {
+/**
+ * A ZIP shows its services.
+ * A merged stack shows one card per ZIP.
+ */
+function cardsFor(
+  group: Group,
+  services: Service[],
+): string[] {
   if (group.zips.length > 1) {
     return group.zips
       .slice(0, MAX_CARDS)
       .flatMap(
-        (area) => services.find((service) => service.zip === area.zip)?.category ?? [],
+        (area) =>
+          services.find(
+            (service) => service.zip === area.zip,
+          )?.category ?? [],
       );
   }
+
   return services
-    .filter((service) => service.zip === group.zips[0].zip)
+    .filter(
+      (service) =>
+        service.zip === group.zips[0].zip,
+    )
     .slice(0, MAX_CARDS)
     .map((service) => service.category);
 }
@@ -320,43 +584,94 @@ function zoomToZips(
   phone: boolean,
 ) {
   if (!map) return;
+
   const bounds = new google.maps.LatLngBounds();
-  zips.forEach((area) => bounds.extend({ lat: area.lat, lng: area.lng }));
+
+  zips.forEach((area) => {
+    bounds.extend({
+      lat: area.lat,
+      lng: area.lng,
+    });
+  });
+
   map.fitBounds(
     bounds,
     phone
-      ? { top: 120, right: 50, bottom: 30, left: 50 }
-      : { top: 170, right: 90, bottom: 60, left: 90 },
+      ? {
+          top: 120,
+          right: 50,
+          bottom: 30,
+          left: 50,
+        }
+      : {
+          top: 170,
+          right: 90,
+          bottom: 60,
+          left: 90,
+        },
   );
 }
 
-// Desktop fits every zip; phones zoom in around the selected one.
+/**
+ * Desktop fits every ZIP.
+ * Phones zoom in around the selected one.
+ */
 function initialBounds(
   areas: ZipArea[],
   selectedZip: string | null,
   phone: boolean,
 ) {
-  const focus = areas.find((area) => area.zip === selectedZip) ?? areas[0];
-  const shown = phone && focus ? [focus] : areas;
+  const focus =
+    areas.find(
+      (area) => area.zip === selectedZip,
+    ) ?? areas[0];
+
+  const shown =
+    phone && focus
+      ? [focus]
+      : areas;
+
   if (!shown.length) {
-    return { north: 40.83, south: 40.78, east: -73.94, west: -73.98 };
+    return {
+      north: 40.83,
+      south: 40.78,
+      east: -73.94,
+      west: -73.98,
+    };
   }
+
   const margin = phone ? 0.012 : 0;
+
   const lats = shown.map((area) => area.lat);
   const lngs = shown.map((area) => area.lng);
+
   return {
     north: Math.max(...lats) + margin,
     south: Math.min(...lats) - margin,
     east: Math.max(...lngs) + margin,
     west: Math.min(...lngs) - margin,
+
     // Cards hang above their point, so leave room at the top.
     padding: phone
-      ? { top: 120, right: 30, bottom: 20, left: 30 }
-      : { top: 160, right: 80, bottom: 50, left: 80 },
+      ? {
+          top: 120,
+          right: 30,
+          bottom: 20,
+          left: 30,
+        }
+      : {
+          top: 160,
+          right: 80,
+          bottom: 50,
+          left: 80,
+        },
   };
 }
 
-// Up to three cards fanned out; the front one carries the label.
+/**
+ * Up to three cards fanned out.
+ * The front one carries the ZIP label.
+ */
 function CardStack({
   cards,
   label,
@@ -367,6 +682,7 @@ function CardStack({
   selected: boolean;
 }) {
   const [front, ...back] = cards;
+
   return (
     <div className="relative">
       {back.map((category, index) => (
@@ -375,10 +691,13 @@ function CardStack({
           category={category}
           className={cn(
             "absolute inset-0",
-            index === 0 ? "-rotate-12" : "rotate-12",
+            index === 0
+              ? "-rotate-12"
+              : "rotate-12",
           )}
         />
       ))}
+
       <Card
         category={front}
         label={label}
@@ -417,6 +736,7 @@ function Card({
       ) : (
         <div className="aspect-square w-full rounded-[12px] bg-barter-read lg:rounded-[15px]" />
       )}
+
       <p className="flex h-5 items-center justify-center text-xs text-black lg:h-6 lg:text-[13px]">
         {label}
       </p>
@@ -424,10 +744,16 @@ function Card({
   );
 }
 
-function MapNotice({ children }: { children: ReactNode }) {
+function MapNotice({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
     <div className="flex size-full items-center justify-center bg-[#e9ecef] p-6 text-center text-sm text-barter-gray">
-      <p className="max-w-xs">{children}</p>
+      <p className="max-w-xs">
+        {children}
+      </p>
     </div>
   );
 }

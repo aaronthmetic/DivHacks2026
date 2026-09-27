@@ -7,7 +7,7 @@ import { apiError, consumeProfileLimit } from "./profile-service";
 
 /**
  * The web's booking actions. Requests are made by `POST /api/bookings` and answered by text;
- * here the requester finishes an accepted booking ("Finish Barter"), which pays the provider
+ * here either person finishes an accepted booking ("Finish Barter"), which pays the provider
  * the coins held since the request.
  */
 export async function updateBooking(request: Request, id: string, auth: Auth, db: Db, client: MongoClient, origin: string) {
@@ -22,7 +22,7 @@ export async function updateBooking(request: Request, id: string, auth: Auth, db
     try { body = objectBody(await request.json()); } catch { throw new InputError("Send a valid JSON object."); }
     onlyFields(body, ["action"]);
     if (body.action !== "confirm") throw new InputError("Choose a booking action.");
-    // The domain allows only the requester to confirm, so a provider can't pay themselves.
+    // Confirming only moves the coins held for this booking, so either person may finish it.
     const booking = await createExchangeService(db, client).transitionBooking(new ObjectId(session.user.id), new ObjectId(id), "confirm");
     return Response.json({ success: true, id, status: booking.status });
   } catch (error) {

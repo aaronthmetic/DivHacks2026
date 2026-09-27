@@ -3,13 +3,32 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+// Bookings already offered in this tab's visit. Session storage clears when the app is
+// closed, so the review comes back the next time it's opened.
+const KEY = "barter:reviewPrompted";
+function promptedIds(): string[] {
+  try { return JSON.parse(sessionStorage.getItem(KEY) ?? "[]"); } catch { return []; }
+}
+function prompted(id: string) {
+  return promptedIds().includes(id);
+}
+function remember(id: string) {
+  try { if (!prompted(id)) sessionStorage.setItem(KEY, JSON.stringify([...promptedIds(), id])); } catch {}
+}
+
+/** Sends someone to review a completed barter they haven't reviewed, once per visit. */
 export function PendingReviewRedirect() {
   const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
-    // Leave the current review page alone, even if another review is pending.
-    if (/^\/bookings\/[^/]+\/review(?:\/|$)/.test(pathname)) return;
+    // Leave the current review page alone, even if another review is pending, and don't
+    // offer it again this visit: closing it means "not now".
+    const reviewing = /^\/bookings\/([0-9a-f]{24})\/review(?:\/|$)/i.exec(pathname);
+    if (reviewing) {
+      remember(reviewing[1]);
+      return;
+    }
 
     const controller = new AbortController();
 
@@ -26,7 +45,8 @@ export function PendingReviewRedirect() {
         if (
           !controller.signal.aborted &&
           typeof id === "string" &&
-          /^[0-9a-f]{24}$/i.test(id)
+          /^[0-9a-f]{24}$/i.test(id) &&
+          !prompted(id)
         ) {
           router.replace(`/bookings/${id}/review`);
         }

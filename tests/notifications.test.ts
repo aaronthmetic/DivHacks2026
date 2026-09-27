@@ -62,23 +62,24 @@ test("booking changes and reviews notify the other person by first name", async 
   await domain.transitionBooking(emily.id, booking._id, "accept");
   assert.equal((await notificationsOf(barry.id)).at(-1)?.message, "Emily accepted your Guitar Lessons request.");
   assert.equal((await card(barry.id))?.booking?.status, "accepted");
+  assert.deepEqual((await card(emily.id))?.toFinish, [{ id: booking._id.toHexString(), requesterFirstName: "Barry" }]);
   await domain.transitionBooking(barry.id, booking._id, "confirm");
   const completed = (await notificationsOf(emily.id)).at(-1)!;
   assert.deepEqual([completed.type, completed.message, completed.href], ["booking_completed", "Barry finished the Guitar Lessons barter. 5 coins were added to your balance.", `/bookings/${booking._id}/review`]);
   assert.equal((await card(barry.id))?.booking, undefined);
+  assert.equal((await card(emily.id))?.toFinish, undefined);
   await domain.createReview(barry.id, booking._id, 5, "Great lesson");
   assert.equal((await notificationsOf(emily.id)).at(-1)?.message, "Barry left you a 5-star review for Guitar Lessons.");
 });
 
-test("only the requester can finish a booking, straight from accepted, and it pays the held coins once", async () => {
+test("either person can finish a booking, straight from accepted, and it pays the held coins once", async () => {
   const provider = await person(3, "Pat", "Provider"), requester = await person(4, "Riley", "Requester");
   const service = await listing(provider.id, 700);
   const domain = createExchangeService(db, client), c = exchangeCollections(db);
   const booking = await domain.requestBooking(requester.id, service._id, { preferredWindow: saturday });
   await domain.transitionBooking(provider.id, booking._id, "accept");
-  await assert.rejects(domain.transitionBooking(provider.id, booking._id, "confirm"), /not allowed/);
-  // A double click: the second confirm sees the booking completed and changes nothing.
-  await Promise.all([domain.transitionBooking(requester.id, booking._id, "confirm"), domain.transitionBooking(requester.id, booking._id, "confirm")]);
+  // Both finishing at once: the second confirm sees the booking completed and changes nothing.
+  await Promise.all([domain.transitionBooking(provider.id, booking._id, "confirm"), domain.transitionBooking(requester.id, booking._id, "confirm")]);
   assert.equal((await c.bookings.findOne({ _id: booking._id }))?.status, "completed");
   const [payer, earner] = await Promise.all([c.accounts.findOne({ userId: requester.id }), c.accounts.findOne({ userId: provider.id })]);
   assert.deepEqual([payer?.availableCredits, payer?.heldCredits, earner?.availableCredits], [300, 0, 1700]);
@@ -86,7 +87,7 @@ test("only the requester can finish a booking, straight from accepted, and it pa
   assert.equal(await c.notifications.countDocuments({ bookingId: booking._id, type: "booking_completed" }), 1);
 });
 
-test("the finish endpoint checks the origin, session, action and role", async () => {
+test("the finish endpoint checks the origin, session, action and participant", async () => {
   const provider = await person(5, "Quinn", "Provider"), requester = await person(6, "Sam", "Requester");
   const service = await listing(provider.id);
   const domain = createExchangeService(db, client);
@@ -100,12 +101,17 @@ test("the finish endpoint checks the origin, session, action and role", async ()
   assert.equal(early.status, 400);
   assert.match((await early.json()).error.message, /Invalid booking transition/);
   await domain.transitionBooking(provider.id, booking._id, "accept");
-  const byProvider = await finish(provider.cookie, booking._id);
-  assert.equal(byProvider.status, 400);
-  assert.match((await byProvider.json()).error.message, /not allowed/);
-  const done = await finish(requester.cookie, booking._id);
+  const outsider = await person(13, "Omar", "Outsider");
+  const byOutsider = await finish(outsider.cookie, booking._id);
+  assert.equal(byOutsider.status, 400);
+  assert.match((await byOutsider.json()).error.message, /not allowed/);
+  // The owner of the listing finishes it, and the requester is told and sent to review.
+  const done = await finish(provider.cookie, booking._id);
   assert.equal(done.status, 200, await done.clone().text());
   assert.deepEqual(await done.json(), { success: true, id: booking._id.toHexString(), status: "completed" });
+  const told = (await notificationsOf(requester.id)).at(-1)!;
+  assert.deepEqual([told.type, told.message, told.href], ["booking_completed", "Quinn finished the Guitar Lessons barter. Your 5 coins were paid to them.", `/bookings/${booking._id}/review`]);
+  assert.equal((await finish(requester.cookie, booking._id)).status, 200);
 });
 
 test("notifications list newest first and only their owner can mark them read", async () => {

@@ -9,6 +9,7 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 import { ChevronDown, X } from "lucide-react";
+import type { EditableListing } from "@/lib/listing-edit";
 import type { CategoryOption } from "@/lib/barter/data";
 import { DAY_NAMES, SHORT_DAY_NAMES, WEEK_DAYS } from "@/lib/availability";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,8 @@ const field =
 const number =
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
-type Photo = { id: number; file: File; url: string };
+type Photo = { id: number; file?: File; imageId?: string; url: string };
+const clockTime = (minutes: number) => `${Math.floor(minutes / 60).toString().padStart(2, "0")}:${(minutes % 60).toString().padStart(2, "0")}`;
 // A chosen day's hours, as the time inputs' "HH:MM" values.
 type DayHours = { day: number; start: string; end: string };
 
@@ -57,41 +59,54 @@ export function CreateListingModal({
   categories,
   onClose,
   onPublished,
+  listing,
+  onDeleted,
 }: {
   open: boolean;
   categories: CategoryOption[];
   onClose: () => void;
   onPublished: () => void;
+  listing?: EditableListing;
+  onDeleted?: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
   return (
     <Modal
       open={open}
       onClose={onClose}
+      dismissDisabled={busy}
       labelledBy="new-listing-heading"
       className="h-[calc(100dvh-1.5rem)] lg:h-auto lg:max-h-[min(822px,calc(100dvh-4rem))]"
     >
-      <CreateListingForm categories={categories} onClose={onClose} onPublished={onPublished} />
+      <ListingForm categories={categories} onClose={onClose} onPublished={onPublished} listing={listing} onDeleted={onDeleted} busy={busy} setBusy={setBusy} />
     </Modal>
   );
 }
 
-function CreateListingForm({
+function ListingForm({
   categories,
   onClose,
-  onPublished,
+  onPublished, listing, onDeleted, busy, setBusy,
 }: {
   categories: CategoryOption[];
   onClose: () => void;
   onPublished: () => void;
+  listing?: EditableListing;
+  onDeleted?: () => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
 }) {
-  const [deliveryMode, setDeliveryMode] = useState("");
-  const [frequency, setFrequency] = useState<"single" | "recurring">("single");
-  const [days, setDays] = useState<DayHours[]>([]);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState(listing?.deliveryMode ?? "");
+  const [frequency, setFrequency] = useState<"single" | "recurring">(listing?.frequency.type ?? "single");
+  const [days, setDays] = useState<DayHours[]>(() => (listing?.availability ?? []).map(row => ({ day: row.day, start: clockTime(row.start), end: clockTime(row.end) })));
+  const [photos, setPhotos] = useState<Photo[]>(() => (listing?.imageIds ?? []).map((imageId, id) => ({ id, imageId, url: `/api/images/${imageId}` })));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const requestPending = useRef(false);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const nextPhotoId = useRef(0);
+  const nextPhotoId = useRef(listing?.imageIds.length ?? 0);
   // Preview URLs are released when a photo is removed and when the form closes.
   const previewUrls = useRef(new Set<string>());
   useEffect(() => {
@@ -100,6 +115,8 @@ function CreateListingForm({
   }, []);
 
   async function addPhotos(files: File[]) {
+    if (preparing || busy) return;
+    setPreparing(true);
     const room = MAX_PHOTOS - photos.length;
     setError(files.length > room ? `You can add up to ${MAX_PHOTOS} photos.` : "");
     try {
@@ -117,7 +134,7 @@ function CreateListingForm({
       setPhotos((current) => [...current, ...added]);
     } catch {
       setError("Choose JPEG, PNG, or WebP photos.");
-    }
+    } finally { setPreparing(false); }
   }
 
   function removePhoto(photo: Photo) {
@@ -141,7 +158,7 @@ function CreateListingForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (requestPending.current || preparing) return;
     if (days.length === 0) {
       setError("Choose at least one day you're available.");
       return;
@@ -151,20 +168,24 @@ function CreateListingForm({
       setError("Each day's end time must be after its start time.");
       return;
     }
-    if (photos.reduce((total, photo) => total + photo.file.size, 0) > MAX_TOTAL_BYTES) {
+    if (photos.reduce((total, photo) => total + (photo.file?.size ?? 0), 0) > MAX_TOTAL_BYTES) {
       setError("Your photos are too large. Remove one or choose smaller photos.");
       return;
     }
     // Disabled inputs (the repeat interval of a single-time listing) are left out.
     const form = new FormData(event.currentTarget);
     form.set("availability", JSON.stringify(days));
-    photos.forEach((photo) => form.append("images", photo.file, photo.file.name));
+    photos.forEach((photo) => { if (photo.file) form.append("images", photo.file, photo.file.name); });
+    if (listing) form.set("retainedImageIds", JSON.stringify(photos.flatMap(photo => photo.imageId ? [photo.imageId] : [])));
+    requestPending.current = true;
     setBusy(true);
     setError("");
     let message = "Unable to connect. Please try again.";
     try {
-      const response = await fetch("/api/services", { method: "POST", body: form });
+      const response = await fetch(listing ? `/api/services/${listing.id}` : "/api/services", { method: listing ? "PATCH" : "POST", body: form });
       if (response.ok) {
+        requestPending.current = false;
+        setBusy(false);
         onPublished();
         return;
       }
@@ -172,42 +193,64 @@ function CreateListingForm({
       message =
         response.status === 429
           ? "Too many changes. Please wait a minute and try again."
-          : data?.error?.message ?? "We could not publish your listing. Please try again.";
+          : data?.error?.message ?? "We could not save your listing. Please try again.";
     } catch {}
+    requestPending.current = false;
     setError(message);
     setBusy(false);
   }
 
+  async function deleteListing() {
+    if (!listing || requestPending.current) return;
+    requestPending.current = true;
+    setBusy(true);
+    setDeleteError("");
+    try {
+      const response = await fetch(`/api/services/${listing.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error?.message ?? "We could not delete your listing. Please try again.");
+      }
+      setConfirmDelete(false);
+      onDeleted?.();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Unable to connect. Please try again.");
+    } finally { requestPending.current = false; setBusy(false); }
+  }
+
   return (
+    <>
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-start justify-between gap-6 px-5 pt-6 pb-4 lg:px-[62px] lg:pt-[42px] lg:pb-3">
         <h2
           id="new-listing-heading"
           className="font-mono text-[26px] leading-tight font-extrabold lg:text-[40px]"
         >
-          Create a listing for your service
+          {listing ? "Edit your listing" : "Create a listing for your service"}
         </h2>
-        <button type="button" onClick={onClose} aria-label="Close" className="shrink-0">
+        {listing && <button type="button" disabled={busy || preparing} onClick={() => { setDeleteError(""); setConfirmDelete(true); }} className="ml-auto rounded-lg bg-red-600 px-4 py-2 font-semibold text-white disabled:opacity-60">Delete</button>}
+        <button type="button" disabled={busy} onClick={onClose} aria-label="Close" className="shrink-0">
           <X className="size-8 lg:size-10" strokeWidth={2.5} />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-1 pb-8 lg:px-[62px]">
-        <fieldset disabled={busy} className="grid min-w-0 gap-x-[39px] gap-y-6 lg:grid-cols-2">
+        <fieldset disabled={busy || preparing} className="grid min-w-0 gap-x-[39px] gap-y-6 lg:grid-cols-2">
           <Field label="Title" htmlFor="new-listing-title">
-            <input id="new-listing-title" name="title" required maxLength={200} className={field} />
+            <input id="new-listing-title" name="title" defaultValue={listing?.title} required maxLength={200} className={field} />
           </Field>
           <Field label="Category" htmlFor="new-listing-category">
             <Select
               id="new-listing-category"
-              name="genreId"
+              name="genreId" initialValue={categories.some(category => category.id === listing?.genreId) ? listing?.genreId : ""}
               required
               options={categories.map(({ id, name }) => [id, name])}
             />
           </Field>
+          {listing && !categories.some(category => category.id === listing.genreId) && <p role="status" className="text-sm text-red-700">The previous category is unavailable. Choose an active category.</p>}
           <Field label="Description" htmlFor="new-listing-description">
             <textarea
               id="new-listing-description"
-              name="description"
+              name="description" defaultValue={listing?.description}
               required
               maxLength={10000}
               className={cn(field, "block h-[140px] resize-none py-4")}
@@ -217,7 +260,7 @@ function CreateListingForm({
           <Field label="Zip code" htmlFor="new-listing-zip" className="lg:col-start-1">
             <input
               id="new-listing-zip"
-              name="zipCode"
+              name="zipCode" defaultValue={listing?.zipCode}
               inputMode="numeric"
               autoComplete="postal-code"
               pattern="[0-9]{5}"
@@ -231,7 +274,7 @@ function CreateListingForm({
           <Field label="Delivery method" htmlFor="new-listing-delivery">
             <Select
               id="new-listing-delivery"
-              name="deliveryMode"
+              name="deliveryMode" initialValue={listing?.deliveryMode}
               required
               onValueChange={setDeliveryMode}
               options={[
@@ -245,7 +288,7 @@ function CreateListingForm({
             <p id="new-listing-pricing" className={label}>Pricing model</p>
             <div className="flex items-center gap-3.5">
               <input
-                name="coins"
+                name="coins" defaultValue={listing ? listing.creditRate / 100 : undefined}
                 type="number"
                 min={1}
                 max={999999}
@@ -258,7 +301,7 @@ function CreateListingForm({
               />
               <span className="text-[15px] font-bold">per</span>
               <Select
-                name="per"
+                name="per" initialValue={listing ? (listing.pricingType === "hourly" ? "hour" : "service") : ""}
                 required
                 aria-label="Charged per"
                 className="flex-1"
@@ -287,7 +330,7 @@ function CreateListingForm({
               />
               <div className="flex gap-3">
                 <input
-                  name="interval"
+                  name="interval" defaultValue={listing?.frequency.type === "recurring" ? listing.frequency.interval : undefined}
                   type="number"
                   min={1}
                   max={99}
@@ -300,7 +343,7 @@ function CreateListingForm({
                   className={cn(field, number, "w-[107px]")}
                 />
                 <Select
-                  name="unit"
+                  name="unit" initialValue={listing?.frequency.type === "recurring" ? listing.frequency.unit : ""}
                   required
                   disabled={frequency !== "recurring"}
                   aria-label="Repeat unit"
@@ -429,19 +472,32 @@ function CreateListingForm({
         <button
           type="button"
           onClick={onClose}
+          disabled={busy}
           className="h-16 bg-[#636363] px-5 text-left text-xl font-bold text-white transition-colors hover:bg-[#575757] lg:h-[103px] lg:px-12 lg:text-[32px]"
         >
           Cancel
         </button>
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || preparing}
           className="h-16 bg-barter-periwinkle px-5 text-left text-xl font-bold text-white transition-colors hover:bg-[#5663f5] disabled:opacity-70 lg:h-[103px] lg:px-10 lg:text-[32px]"
         >
-          {busy ? "Publishing…" : "Publish"}
+          {busy ? (listing ? "Saving…" : "Publishing…") : (listing ? "Save" : "Publish")}
         </button>
       </div>
     </form>
+    <Modal open={confirmDelete} onClose={() => { if (!busy) setConfirmDelete(false); }} dismissDisabled={busy} labelledBy="delete-listing-heading" className="max-w-lg">
+      <div className="space-y-5 p-6">
+        <h2 id="delete-listing-heading" className="text-xl font-bold">Delete listing</h2>
+        <p>Are you sure you want to delete this listing? This action cannot be undone.</p>
+        {deleteError && <p role="alert" className="text-red-700">{deleteError}</p>}
+        <div className="flex justify-end gap-3">
+          <button type="button" autoFocus disabled={busy} onClick={() => setConfirmDelete(false)} className="rounded-lg border px-5 py-2">Cancel</button>
+          <button type="button" disabled={busy} onClick={() => void deleteListing()} className="rounded-lg bg-red-600 px-5 py-2 text-white disabled:opacity-60">{busy ? "Deleting…" : "Delete"}</button>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }
 
@@ -470,13 +526,15 @@ function Field({
 function Select({
   options,
   onValueChange,
+  initialValue = "",
   className,
   ...props
 }: Omit<SelectHTMLAttributes<HTMLSelectElement>, "defaultValue" | "value"> & {
+  initialValue?: string;
   options: [string, string][];
   onValueChange?: (value: string) => void;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
   return (
     <div className={cn("relative", className)}>
       <select

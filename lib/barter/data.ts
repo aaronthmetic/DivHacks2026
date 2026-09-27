@@ -1,6 +1,7 @@
 // Types for the barter UI. Listings come from MongoDB (lib/listing-data.ts); zip
 // areas and notifications are still mock data until they have a real source.
 
+import type { EditableListing } from "../listing-edit";
 import type { AvailabilityWindow } from "../exchange-schema";
 
 export type Service = {
@@ -30,6 +31,7 @@ export type Service = {
   providerName: string;
   /** Whether the signed-in viewer posted this listing. */
   own: boolean;
+  editable?: EditableListing;
 };
 
 export type CategoryOption = { id: string; name: string };

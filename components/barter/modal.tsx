@@ -10,6 +10,7 @@ export function Modal({
   onClose,
   labelledBy,
   closeOnBackdrop = false,
+  dismissDisabled = false,
   className,
   children,
 }: {
@@ -17,6 +18,7 @@ export function Modal({
   onClose: () => void;
   labelledBy: string;
   closeOnBackdrop?: boolean;
+  dismissDisabled?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -32,10 +34,11 @@ export function Modal({
     <dialog
       ref={ref}
       aria-labelledby={labelledBy}
-      onClose={onClose}
+      onClose={(event) => { event.stopPropagation(); if (open) onClose(); }}
+      onCancel={(event) => { event.stopPropagation(); if (dismissDisabled) event.preventDefault(); }}
       onClick={(event) => {
         // Clicks on the backdrop land on the dialog element itself.
-        if (closeOnBackdrop && event.target === event.currentTarget) onClose();
+        if (!dismissDisabled && closeOnBackdrop && event.target === event.currentTarget) onClose();
       }}
       className={cn(
         // `open:flex` rather than `flex`, which would override the closed dialog's display: none.

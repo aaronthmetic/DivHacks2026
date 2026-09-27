@@ -14,19 +14,19 @@ When that first text arrives, barter records that texts are on and replies: "bar
 
 ### Contact
 
-The listing modal's Contact button behaves like this:
+On the home page, the listing modal's Contact button behaves like this:
 
-- **Your own listing:** "Your profile", as now.
+- **Your own listing:** no Contact button. The Edit button appears instead.
 - **The provider hasn't turned on texts:** no button. The text "Requests aren't available for this provider yet" appears instead.
 - **You haven't turned on texts:** Contact shows the turn-on step from the banner instead of the form.
 - **Otherwise:** Contact switches the modal to a request form, with a Back link.
-  - **Time:** pick one of the provider's availability windows, e.g. "Sat 10 AM–2 PM". Listings created before availability existed skip this, and the text says "Any time".
+  - **Time:** pick one of the provider's availability windows, e.g. "Sat 10 AM–2 PM". Listings created before availability existed skip this, and the text says "Prefers any time".
   - **Hours:** 1 to 8 whole hours, for hourly listings only.
   - **Note:** optional, at most 300 characters.
   - **Total:** the coins the request will hold, next to your balance.
   - **Send request:** creates the booking, which holds the coins, and closes the form with "Request sent. We'll text you when <provider> answers." Here and in the error messages below, `<provider>` is the provider's first name.
 
-The requester's profile page already lists their open bookings with status, so new requests appear there without changes.
+The requester's profile page already lists their open bookings with status, so new requests appear there without changes. Profile pages reuse the listing modal but don't send requests yet, so Contact there opens the provider's profile.
 
 ### The texts
 
@@ -76,7 +76,7 @@ The other texts:
   - `photonNumber` (E.164 string): the assigned barter number.
   - `textsEnabledAt` (Date): the time of the first inbound text.
   - When a phone number changes, the profile update unsets all three in the same transaction, so the person turns texts on again for the new number.
-- **`booking`** gets `preferredWindow` (an `AvailabilityWindow`, absent for "Any time") and `note` (trimmed, 1–300 characters, absent when empty). `requestBooking` accepts both as options and validates them: the window must equal one of the listing's windows, and a window is required when the listing has any.
+- **`booking`** gets `preferredWindow` (an `AvailabilityWindow`, absent when the listing has no windows) and `note` (trimmed, 1–300 characters, absent when empty). `requestBooking` accepts both as options and validates them: the window must equal one of the listing's windows, and a window is required when the listing has any.
 - **`photonMessage`** is a new collection, `{ _id: <Photon message ID>, receivedAt }`, with a TTL index that expires entries after 7 days. The webhook inserts before handling a message, so a duplicate delivery hits the unique ID and is skipped.
 
 Senders are found by `user.phoneNumber`, which already has a unique index.

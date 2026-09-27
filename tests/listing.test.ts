@@ -7,7 +7,8 @@ import { ensureAuthIndexes } from "../lib/auth-indexes";
 import { DEFAULT_GENRES, ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections } from "../lib/exchange-schema";
 import { createExchangeService } from "../lib/exchange-service";
 import { snapshotService } from "../lib/booking-snapshot";
-import { createListing, MAX_LISTING_BODY_BYTES, parseListingForm } from "../lib/listing-service";
+import { modifyListing, createListing, MAX_LISTING_BODY_BYTES, parseListingForm } from "../lib/listing-service";
+import { getProfileData } from "../lib/profile-data";
 import { frequencyLabel, getExplorerData, priceLabel } from "../lib/listing-data";
 
 let server: MongoMemoryReplSet, client: MongoClient, db: Db, auth: Auth;
@@ -177,4 +178,115 @@ test("the explorer lists active listings with provider ratings and labels", asyn
   assert.ok(!data.categories.some((category) => category.name === "Retired"));
   const own = await getExplorerData(db, provider.id.toHexString());
   assert.equal(own.listings.find((listing) => listing.id === shown._id.toHexString())?.own, true);
+});
+
+function modify(cookie: string, id: string, body?: FormData | Blob, requestOrigin = origin) {
+  return modifyListing(new Request(`${origin}/api/services/${id}`, {
+    method: body ? "PATCH" : "DELETE", headers: { cookie, origin: requestOrigin }, ...(body ? { body } : {}),
+  }), id, auth, db, origin);
+}
+
+test("owners can edit and archive listings while booking snapshots and photos survive", async () => {
+  const owner = await lister(10), requester = await lister(11);
+  const genre = await genreId();
+  const created = await post(owner.cookie, listingForm(baseFields(genre), [png, png]));
+  const id = (await created.json()).id;
+  const c = exchangeCollections(db);
+  const original = (await c.services.findOne({ _id: new ObjectId(id) }))!;
+  const domain = createExchangeService(db, client);
+  await domain.grantWelcome(requester.id);
+  const booking = await domain.requestBooking(requester.id, original._id, { durationMinutes: 60, preferredWindow: storedAvailability[0] });
+  await c.services.updateOne({ _id: original._id }, { $set: { status: "paused" } });
+  const updated = await modify(owner.cookie, id, listingForm({ ...baseFields(genre),
+    title: "Updated title", description: "New description", deliveryMode: "remote", zipCode: "", coins: "8", per: "service",
+    frequency: "single", availability: JSON.stringify([{ day: 2, start: "09:00", end: "10:00" }]),
+    retainedImageIds: JSON.stringify([original.images![1].toHexString()]),
+  }, [png]));
+  assert.equal(updated.status, 200, await updated.clone().text());
+  const saved = (await c.services.findOne({ _id: original._id }))!;
+  assert.equal(saved.title, "Updated title"); assert.equal(saved.description, "New description");
+  assert.equal(saved.status, "paused"); assert.equal(saved.deliveryMode, "remote");
+  assert.equal(saved.zipCode, undefined); assert.equal(saved.countryCode, undefined);
+  assert.equal(saved.creditRate, 800); assert.equal(saved.pricingType, "fixed");
+  assert.deepEqual(saved.frequency, { type: "single" });
+  assert.deepEqual(saved.availability, [{ day: 2, start: 540, end: 600 }]);
+  assert.deepEqual(saved.createdAt, original.createdAt); assert.deepEqual(saved.userId, original.userId);
+  assert.equal(saved.images?.length, 2); assert.ok(saved.images![0].equals(original.images![1]));
+  assert.equal(await db.collection("images.files").countDocuments({ _id: { $in: original.images } }), 2);
+  const profile = (await getProfileData(db, owner.id.toHexString(), owner.id.toHexString(), "1"))!;
+  assert.equal(profile.listings.find(card => card.id === id)?.editable?.creditRate, 800);
+  assert.ok(profile.categories?.length);
+  const publicProfile = (await getProfileData(db, owner.id.toHexString(), requester.id.toHexString(), "1"))!;
+  assert.equal(publicProfile.categories, undefined);
+  assert.ok(publicProfile.listings.every(card => card.editable === undefined));
+  assert.equal((await modify(owner.cookie, id)).status, 200);
+  assert.equal((await c.services.findOne({ _id: original._id }))?.status, "archived");
+  assert.deepEqual(await c.bookings.findOne({ _id: booking._id }), booking);
+  assert.equal(await db.collection("images.files").countDocuments({ _id: { $in: original.images } }), 2);
+  assert.ok(!(await getExplorerData(db, owner.id.toHexString())).listings.some(card => card.id === id));
+  assert.ok(!(await getProfileData(db, owner.id.toHexString(), owner.id.toHexString(), "1"))!.listings.some(card => card.id === id));
+  assert.equal((await modify(owner.cookie, id)).status, 404);
+  assert.equal((await modify(owner.cookie, id, listingForm({ ...baseFields(genre), retainedImageIds: "[]" }))).status, 404);
+  await assert.rejects(domain.requestBooking(requester.id, original._id, { durationMinutes: 60, preferredWindow: { day: 2, start: 540, end: 600 } }), /Active service not found/);
+});
+
+test("listing mutations reject unauthorized and invalid requests without changing stored data", async () => {
+  const owner = await lister(12), other = await lister(13);
+  const genre = await genreId();
+  const created = await post(owner.cookie, listingForm(baseFields(genre), [png]));
+  const id = (await created.json()).id;
+  const c = exchangeCollections(db);
+  const original = (await c.services.findOne({ _id: new ObjectId(id) }))!;
+  const form = (extra: Record<string, string> = {}, photos: Buffer[] = []) => listingForm({ ...baseFields(genre), retainedImageIds: JSON.stringify(original.images!.map(id => id.toHexString())), ...extra }, photos);
+  for (const body of [undefined, form()]) {
+    assert.equal((await modify("", id, body)).status, 401);
+    assert.equal((await modify(other.cookie, id, body)).status, 404);
+    assert.equal((await modify(owner.cookie, id, body, "https://evil.example")).status, 403);
+  }
+  assert.equal((await modify(owner.cookie, "invalid")).status, 400);
+  const invalidEdits: Record<string, string>[] = [
+    { retainedImageIds: "invalid" }, { retainedImageIds: JSON.stringify([new ObjectId().toHexString()]) },
+    { retainedImageIds: JSON.stringify([original.images![0].toHexString(), original.images![0].toHexString()]) },
+    { title: "" }, { availability: "[]" }, { userId: other.id.toHexString() }, { status: "active" },
+    { genreId: new ObjectId().toHexString() },
+  ];
+  for (const extra of invalidEdits) {
+    const response = await modify(owner.cookie, id, form(extra));
+    assert.equal(response.status, 400, await response.clone().text());
+  }
+  const filesBefore = await db.collection("images.files").countDocuments();
+  assert.equal((await modify(owner.cookie, id, form({}, [png, png, png, png, png]))).status, 400);
+  assert.equal((await modify(owner.cookie, id, form({}, [Buffer.from("invalid image")]))).status, 400);
+  const oversized = new Blob([new Uint8Array(MAX_LISTING_BODY_BYTES + 1)], { type: "multipart/form-data; boundary=x" });
+  assert.equal((await modify(owner.cookie, id, oversized)).status, 413);
+  assert.equal(await db.collection("images.files").countDocuments(), filesBefore);
+  assert.deepEqual(await c.services.findOne({ _id: original._id }), original);
+});
+
+test("failed listing saves and uploads clean up new images and preserve the original listing", async () => {
+  const owner = await lister(14);
+  const genre = await genreId();
+  const created = await post(owner.cookie, listingForm(baseFields(genre), [png]));
+  const id = (await created.json()).id;
+  const original = await exchangeCollections(db).services.findOne({ _id: new ObjectId(id) });
+  for (const failure of ["save", "upload", "conflict"]) {
+    const failedDb = new Proxy(db, { get(target, key) {
+      if (key === "collection") return (name: string) => {
+        const collection = target.collection(name);
+        if (name !== (failure === "upload" ? "images.chunks" : "service")) return collection;
+        return new Proxy(collection, { get(target, key) {
+          if (key === (failure === "upload" ? "insertOne" : "updateOne")) return async () => {
+            if (failure === "conflict") return { matchedCount: 0 };
+            throw new Error("Simulated listing failure");
+          };
+          const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
+        } });
+      };
+      const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const request = new Request(`${origin}/api/services/${id}`, { method: "PATCH", headers: { cookie: owner.cookie, origin }, body: listingForm({ ...baseFields(genre), retainedImageIds: "[]" }, [png]) });
+    assert.equal((await modifyListing(request, id, auth, failedDb, origin)).status, failure === "conflict" ? 409 : 503);
+    assert.equal(await db.collection("images.files").countDocuments({ "metadata.ownerId": owner.id }), 1);
+    assert.deepEqual(await exchangeCollections(db).services.findOne({ _id: new ObjectId(id) }), original);
+  }
 });

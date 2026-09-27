@@ -20,6 +20,7 @@ import {
 } from "react";
 
 import type { Service } from "@/lib/barter/data";
+import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
 
 type Art = {
@@ -163,7 +164,7 @@ export function ResultsPanel({
 
       <ul
         className={cn(
-          "grid",
+          "grid items-stretch",
           compact
             ? "mt-4 grid-cols-2 gap-[27px]"
             : "mt-[18px] grid-cols-1 gap-[30px] xl:grid-cols-2",
@@ -209,7 +210,7 @@ function ServiceCard({
   return (
     <article
       className={cn(
-        "relative bg-white shadow-[0_4px_12px_rgba(0,0,0,0.15)]",
+        "relative flex h-full flex-col bg-white shadow-[0_4px_12px_rgba(0,0,0,0.15)]",
         compact
           ? "rounded-[14px] p-3.5"
           : "rounded-[24px] p-[27px]",
@@ -250,28 +251,6 @@ function ServiceCard({
         <h3 className="min-w-0 leading-tight text-black">
           {service.title}
         </h3>
-
-        <p className="flex shrink-0 items-center gap-1 leading-tight">
-          <span className="sr-only">
-            Rated
-          </span>
-
-          {service.ratingCount
-            ? service.rating.toFixed(
-                1,
-              )
-            : "New"}
-
-          <Star
-            aria-hidden
-            className={cn(
-              "fill-barter-star text-barter-star",
-              compact
-                ? "size-3.5"
-                : "size-[26px]",
-            )}
-          />
-        </p>
       </div>
 
       <div
@@ -285,13 +264,61 @@ function ServiceCard({
         <span className="truncate">
           {service.location}
         </span>
+      </div>
 
-        <span className="shrink-0">
-          {service.ratingCount}{" "}
-          {service.ratingCount ===
-          1
-            ? "rating"
-            : "ratings"}
+      <div
+        className={cn(
+          "mt-auto flex justify-end",
+          compact ? "pt-2" : "pt-3",
+        )}
+      >
+        <span
+          className={cn(
+            "flex shrink-0 items-center leading-tight",
+            compact ? "gap-0.5" : "gap-1",
+          )}
+          role="img"
+          aria-label={
+            service.ratingCount
+              ? `${service.rating.toFixed(1)} out of 5 stars, ${service.ratingCount} reviews`
+              : "No reviews yet"
+          }
+        >
+          <span className="flex" aria-hidden="true">
+            {Array.from({ length: 5 }, (_, index) => (
+              <span
+                key={index}
+                className={cn(
+                  "relative block text-amber-500",
+                  compact ? "size-2.5" : "size-4",
+                )}
+              >
+                <Star className="size-full" />
+                <span
+                  className="absolute inset-y-0 left-0 overflow-hidden"
+                  style={{
+                    width: `${starFill(service.ratingCount ? service.rating : 0, index)}%`,
+                  }}
+                >
+                  <Star
+                    className={cn(
+                      "max-w-none fill-current",
+                      compact ? "size-2.5" : "size-4",
+                    )}
+                  />
+                </span>
+              </span>
+            ))}
+          </span>
+          <span
+            aria-hidden="true"
+            className={cn(
+              "text-barter-gray",
+              compact ? "text-[9px]" : "text-xs",
+            )}
+          >
+            ({service.ratingCount})
+          </span>
         </span>
       </div>
 

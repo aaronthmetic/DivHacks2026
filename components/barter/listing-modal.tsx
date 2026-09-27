@@ -15,16 +15,20 @@ import { useState } from "react";
 
 const contactButton = "flex h-14 shrink-0 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl";
 
+/** What Contact needs to send requests: the viewer's balance and whether they've turned on texts. */
+type Requests = { balance: number; textsEnabled: boolean };
+
 export function ListingModal({
   service,
-  balance,
-  textsEnabled,
+  requests,
   onClose,
+  onEdit,
 }: {
   service: Service | null;
-  balance: number;
-  textsEnabled: boolean;
+  /** Left out where requests can't be sent yet, as on profile pages; Contact then opens the provider's profile. */
+  requests?: Requests;
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <Modal
@@ -35,12 +39,12 @@ export function ListingModal({
       className="lg:max-h-[min(843px,calc(100dvh-4rem))]"
     >
       {/* Keyed so each listing starts on its details, not a previous listing's request form. */}
-      {service && <ListingBody key={service.id} service={service} balance={balance} textsEnabled={textsEnabled} onClose={onClose} />}
+      {service && <ListingBody key={service.id} service={service} requests={requests} onClose={onClose} onEdit={onEdit} />}
     </Modal>
   );
 }
 
-function ListingBody({ service, balance, textsEnabled, onClose }: { service: Service; balance: number; textsEnabled: boolean; onClose: () => void }) {
+function ListingBody({ service, requests, onClose, onEdit }: { service: Service; requests?: Requests; onClose: () => void; onEdit?: () => void }) {
   const router = useRouter();
   const [view, setView] = useState<"details" | "request" | "sent">("details");
   const providerFirstName = service.providerName.split(" ")[0];
@@ -66,11 +70,11 @@ function ListingBody({ service, balance, textsEnabled, onClose }: { service: Ser
           <X className="size-8 lg:size-10" strokeWidth={2.5} />
         </button>
       </div>
-      {view === "request" ? (
-        textsEnabled ? (
+      {view === "request" && requests ? (
+        requests.textsEnabled ? (
           <RequestForm
             service={service}
-            balance={balance}
+            balance={requests.balance}
             onBack={() => setView("details")}
             onSent={() => {
               setView("sent");
@@ -114,17 +118,21 @@ function ListingBody({ service, balance, textsEnabled, onClose }: { service: Ser
                 {service.availability.length > 0 && " (New York time)"}
               </p>
             </section>
-            <Contact service={service} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
+            <Contact service={service} canRequest={requests !== undefined} sent={view === "sent"} providerFirstName={providerFirstName} onContact={() => setView("request")} />
           </div>
+          {service.own && onEdit && <button type="button" onClick={onEdit} className="mt-8 w-full rounded-lg bg-barter-periwinkle px-6 py-4 font-mono text-xl font-bold text-white hover:opacity-90">Edit</button>}
         </>
       )}
     </div>
   );
 }
 
-function Contact({ service, sent, providerFirstName, onContact }: { service: Service; sent: boolean; providerFirstName: string; onContact: () => void }) {
-  if (service.own) {
-    return <Link href="/profile" aria-label="View your profile" className={contactButton}>Your profile</Link>;
+function Contact({ service, canRequest, sent, providerFirstName, onContact }: { service: Service; canRequest: boolean; sent: boolean; providerFirstName: string; onContact: () => void }) {
+  // Your own listing gets the Edit button instead.
+  if (service.own) return null;
+  // Where requests can't be sent yet, Contact opens the provider's profile.
+  if (!canRequest) {
+    return <Link href={`/profile/${service.providerId}`} aria-label={`Contact ${service.providerName}`} className={contactButton}>Contact</Link>;
   }
   if (sent) {
     return <p role="status" className="max-w-[260px] font-mono text-base font-bold lg:text-lg">Request sent. We&apos;ll text you when {providerFirstName} answers.</p>;

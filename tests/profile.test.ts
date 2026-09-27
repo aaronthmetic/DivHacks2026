@@ -24,11 +24,11 @@ after(async () => { await client?.close(); await server?.stop(); });
 
 test("profile DTOs protect privacy, filter listings, order bookings, and paginate reviews", async () => {
   const owner = new ObjectId(), visitor = new ObjectId();
+  const createdAt = new Date();
   await db.collection("user").insertMany([
-    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11 },
+    { _id: owner, name: "Owner", email: "private@example.com", phoneNumber: "+12025550199", rating: 3.7, numberOfReviews: 11, textsEnabledAt: createdAt },
     { _id: visitor, name: "Visitor", email: "visitor@example.com" },
   ]);
-  const createdAt = new Date();
   await db.collection("service").insertMany(["active", "paused", "archived"].map(status => ({ userId: owner, status, title: status, description: "Details", creditRate: 250, pricingType: "fixed", deliveryMode: "remote", createdAt })));
   const now = Date.now();
   const makeBooking = (title: string, status: string, time?: number, requesterId = owner) => ({ serviceSnapshot: { title, description: "Booked details" }, status, requesterId, providerId: visitor, totalCredits: 250, ...(time === undefined ? {} : { scheduledAt: new Date(time) }) });
@@ -47,6 +47,7 @@ test("profile DTOs protect privacy, filter listings, order bookings, and paginat
   const second = (await getProfileData(db, owner.toHexString(), visitor.toHexString(), "2"))!;
   assert.equal(second.isOwner, false); assert.equal(second.bookings.length, 0);
   assert.deepEqual(second.listings.map(s => s.title), ["active"]);
+  assert.deepEqual([second.listings[0].pricingType, second.listings[0].creditRate, second.listings[0].providerTextsEnabled], ["fixed", 250, true]);
   assert.equal(second.reviews.length, 1); assert.equal(second.reviews[0].id, reviewIds[0].toHexString());
   assert.equal(JSON.stringify(second).includes("private@example.com"), false);
   assert.equal(JSON.stringify(second).includes("+12025550199"), false);

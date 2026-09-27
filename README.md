@@ -62,12 +62,12 @@ Group chats need a dedicated Photon line (Business plan). On Free or Pro, a grou
 
 ## Booking requests by text
 
-Contact on a listing sends a booking request through Photon:
+Contact on a home page listing sends a booking request through Photon:
 - The requester's coins are held.
 - The provider gets a text with the details and a short code, and replies YES or NO.
 - Both people get texts about the outcome.
 
-Both people must turn on texts first, using the banner on the home page. That also proves they own their phone. The exact wording of every text is in `lib/booking-texts.ts`.
+Both people must turn on texts first, using the banner on the home page. That also proves they own their phone. The exact wording of every text is in `lib/booking-texts.ts`. Profile pages don't send requests yet, so Contact there opens the provider's profile.
 
 Setup, once per deployment:
 

@@ -1,14 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Star, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Star,
+  X,
+} from "lucide-react";
+
 import type { Service } from "@/lib/barter/data";
 import { formatAvailability } from "@/lib/availability";
 import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
+
 import { Modal } from "./modal";
 import { ServiceArt } from "./results";
-import { useState } from "react";
 
 export function ListingModal({
   service,
@@ -19,6 +27,62 @@ export function ListingModal({
   onClose: () => void;
   onEdit?: () => void;
 }) {
+  const router = useRouter();
+
+  const [creatingBooking, setCreatingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
+  // Default hourly booking duration.
+  const [durationMinutes, setDurationMinutes] = useState(60);
+
+  async function createBooking() {
+    if (!service || service.own || creatingBooking) {
+      return;
+    }
+
+    try {
+      setCreatingBooking(true);
+      setBookingError(null);
+
+      const response = await fetch("/api/bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          serviceId: service.id,
+
+          // Only hourly services require a duration.
+          durationMinutes:
+            service.pricingType === "hourly"
+              ? durationMinutes
+              : undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ?? "Failed to create booking",
+        );
+      }
+
+      // Redirect to the newly-created booking.
+      router.push(`/bookings/${data.booking.id}`);
+    } catch (error) {
+      console.error("Failed to create booking:", error);
+
+      setBookingError(
+        error instanceof Error
+          ? error.message
+          : "Failed to create booking",
+      );
+    } finally {
+      setCreatingBooking(false);
+    }
+  }
+
   return (
     <Modal
       open={service !== null}
@@ -37,38 +101,78 @@ export function ListingModal({
               >
                 {service.title}
               </h2>
-              <Rating service={service} className="mt-2 lg:hidden" />
+
+              <Rating
+                service={service}
+                className="mt-2 lg:hidden"
+              />
             </div>
-            <Rating service={service} className="hidden lg:flex lg:pt-2" />
+
+            <Rating
+              service={service}
+              className="hidden lg:flex lg:pt-2"
+            />
+
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
               className="shrink-0 lg:ml-3"
             >
-              <X className="size-8 lg:size-10" strokeWidth={2.5} />
+              <X
+                className="size-8 lg:size-10"
+                strokeWidth={2.5}
+              />
             </button>
           </div>
+
           <Gallery service={service} />
+
           <div className="mt-7 flex flex-col gap-6 lg:mt-8 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
-            <section aria-labelledby="listing-description" className="min-w-0 lg:max-w-[770px]">
-              <h3 id="listing-description" className="font-mono text-xl font-bold lg:text-2xl">
+            <section
+              aria-labelledby="listing-description"
+              className="min-w-0 lg:max-w-[770px]"
+            >
+              <h3
+                id="listing-description"
+                className="font-mono text-xl font-bold lg:text-2xl"
+              >
                 Description
               </h3>
+
               <p className="mt-4 font-mono text-base whitespace-pre-wrap text-barter-gray [overflow-wrap:anywhere] lg:mt-5 lg:text-xl">
                 {service.description}
               </p>
-              <ul aria-label="Details" className="mt-5 flex flex-wrap gap-2 font-mono text-sm font-bold">
-                {[...new Set([service.category, service.location, ...service.tags])].map((detail) => (
-                  <li key={detail} className="rounded-lg bg-barter-read px-3 py-1.5">
+
+              <ul
+                aria-label="Details"
+                className="mt-5 flex flex-wrap gap-2 font-mono text-sm font-bold"
+              >
+                {[
+                  ...new Set([
+                    service.category,
+                    service.location,
+                    ...service.tags,
+                  ]),
+                ].map((detail) => (
+                  <li
+                    key={detail}
+                    className="rounded-lg bg-barter-read px-3 py-1.5"
+                  >
                     {detail}
                   </li>
                 ))}
               </ul>
-              <h3 className="mt-6 font-mono text-xl font-bold lg:mt-8 lg:text-2xl">Availability</h3>
+
+              <h3 className="mt-6 font-mono text-xl font-bold lg:mt-8 lg:text-2xl">
+                Availability
+              </h3>
+
               <p className="mt-3 font-mono text-base text-barter-gray lg:mt-4 lg:text-xl">
                 {formatAvailability(service.availability)}
-                {service.availability.length > 0 && " (New York time)"}
+
+                {service.availability.length > 0 &&
+                  " (New York time)"}
               </p>
             </section>
             {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
@@ -87,36 +191,85 @@ export function ListingModal({
   );
 }
 
-// The provider's average from reviews, as five partly filled stars and a count.
-function Rating({ service, className }: { service: Service; className?: string }) {
-  const value = service.ratingCount ? service.rating : 0;
+function Rating({
+  service,
+  className,
+}: {
+  service: Service;
+  className?: string;
+}) {
+  const value = service.ratingCount
+    ? service.rating
+    : 0;
+
   return (
-    <p className={cn("flex shrink-0 items-center gap-2", className)}>
+    <p
+      className={cn(
+        "flex shrink-0 items-center gap-2",
+        className,
+      )}
+    >
       <span className="sr-only">
         {service.ratingCount
-          ? `Rated ${value.toFixed(1)} out of 5 from ${service.ratingCount} ${service.ratingCount === 1 ? "review" : "reviews"}`
+          ? `Rated ${value.toFixed(1)} out of 5 from ${
+              service.ratingCount
+            } ${
+              service.ratingCount === 1
+                ? "review"
+                : "reviews"
+            }`
           : "No reviews yet"}
       </span>
-      <span aria-hidden className="flex gap-1">
-        {Array.from({ length: 5 }, (_, index) => (
-          <span key={index} className="relative size-6 lg:size-[34px]">
-            <Star className="absolute inset-0 size-full fill-barter-line text-barter-line" strokeWidth={1} />
-            <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${starFill(value, index)}%` }}>
-              <Star className="size-6 max-w-none fill-barter-star text-barter-star lg:size-[34px]" strokeWidth={1} />
+
+      <span
+        aria-hidden
+        className="flex gap-1"
+      >
+        {Array.from(
+          { length: 5 },
+          (_, index) => (
+            <span
+              key={index}
+              className="relative size-6 lg:size-[34px]"
+            >
+              <Star
+                className="absolute inset-0 size-full fill-barter-line text-barter-line"
+                strokeWidth={1}
+              />
+
+              <span
+                className="absolute inset-y-0 left-0 overflow-hidden"
+                style={{
+                  width: `${starFill(value, index)}%`,
+                }}
+              >
+                <Star
+                  className="size-6 max-w-none fill-barter-star text-barter-star lg:size-[34px]"
+                  strokeWidth={1}
+                />
+              </span>
             </span>
-          </span>
-        ))}
+          ),
+        )}
       </span>
-      <span aria-hidden className="font-mono text-lg font-bold text-barter-gray lg:text-[22px]">
+
+      <span
+        aria-hidden
+        className="font-mono text-lg font-bold text-barter-gray lg:text-[22px]"
+      >
         ({service.ratingCount})
       </span>
     </p>
   );
 }
 
-// One large photo with two stacked beside it, as in the mockup; fewer photos share the row.
-function Gallery({ service }: { service: Service }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
+function Gallery({
+  service,
+}: {
+  service: Service;
+}) {
+  const [currentIndex, setCurrentIndex] =
+    useState(0);
 
   const images = service.images ?? [];
   const imageCount = images.length;
@@ -133,31 +286,36 @@ function Gallery({ service }: { service: Service }) {
 
   const previousImage = () => {
     setCurrentIndex((current) =>
-      current === 0 ? imageCount - 1 : current - 1,
+      current === 0
+        ? imageCount - 1
+        : current - 1,
     );
   };
 
   const nextImage = () => {
     setCurrentIndex((current) =>
-      current === imageCount - 1 ? 0 : current + 1,
+      current === imageCount - 1
+        ? 0
+        : current + 1,
     );
   };
 
   return (
     <div className="mt-6 lg:mt-[37px]">
       <div className="relative h-64 overflow-hidden rounded-[16px] bg-barter-read lg:h-[468px] lg:rounded-[20px]">
-        {/* Current image */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={images[currentIndex]}
-          alt={`${service.title}, photo ${currentIndex + 1}`}
+          alt={`${service.title}, photo ${
+            currentIndex + 1
+          }`}
           onError={(event) => {
-            event.currentTarget.style.visibility = "hidden";
+            event.currentTarget.style.visibility =
+              "hidden";
           }}
           className="size-full object-contain"
         />
 
-        {/* Previous button */}
         {imageCount > 1 && (
           <button
             type="button"
@@ -169,7 +327,6 @@ function Gallery({ service }: { service: Service }) {
           </button>
         )}
 
-        {/* Next button */}
         {imageCount > 1 && (
           <button
             type="button"
@@ -181,7 +338,6 @@ function Gallery({ service }: { service: Service }) {
           </button>
         )}
 
-        {/* Image counter */}
         {imageCount > 1 && (
           <div className="absolute top-3 right-3 rounded-lg bg-black/60 px-3 py-1.5 font-mono text-sm font-bold text-white">
             {currentIndex + 1} / {imageCount}
@@ -189,16 +345,23 @@ function Gallery({ service }: { service: Service }) {
         )}
       </div>
 
-      {/* Carousel dots */}
       {imageCount > 1 && (
         <div className="mt-3 flex justify-center gap-2">
           {images.map((_, index) => (
             <button
               key={index}
               type="button"
-              onClick={() => setCurrentIndex(index)}
-              aria-label={`View image ${index + 1}`}
-              aria-current={currentIndex === index ? "true" : undefined}
+              onClick={() =>
+                setCurrentIndex(index)
+              }
+              aria-label={`View image ${
+                index + 1
+              }`}
+              aria-current={
+                currentIndex === index
+                  ? "true"
+                  : undefined
+              }
               className={cn(
                 "size-2.5 rounded-full transition-all",
                 currentIndex === index

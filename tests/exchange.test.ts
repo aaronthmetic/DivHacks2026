@@ -81,7 +81,8 @@ test("snapshots, authorized transitions, duplicate settlement and participant re
   await domain.transitionBooking(provider, booking._id, "accept");
   await domain.transitionBooking(provider, booking._id, "deliver");
   await assert.rejects(domain.transitionBooking(requester, booking._id, "cancel"));
-  await assert.rejects(domain.transitionBooking(provider, booking._id, "confirm"));
+  // Either participant can finish; nobody else can.
+  await assert.rejects(domain.transitionBooking(new ObjectId(), booking._id, "confirm"), /not allowed/);
   await Promise.all([domain.transitionBooking(requester, booking._id, "confirm"), domain.transitionBooking(requester, booking._id, "confirm")]);
   assert.equal((await c.accounts.findOne({ userId: provider }))?.availableCredits, 1600);
   const payer = await c.accounts.findOne({ userId: requester });

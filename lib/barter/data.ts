@@ -34,6 +34,8 @@ export type Service = {
   editable?: EditableListing;
   /** The viewer's open booking of this listing, if any: it's waiting for an answer, or accepted and ready to finish. */
   booking?: { id: string; status: "requested" | "accepted" | "awaiting_confirmation" };
+  /** On your own listing: its accepted bookings, newest first, which you can finish. */
+  toFinish?: { id: string; requesterFirstName: string }[];
 };
 
 export type CategoryOption = { id: string; name: string };

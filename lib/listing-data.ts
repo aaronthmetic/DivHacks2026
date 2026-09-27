@@ -29,14 +29,24 @@ export function frequencyLabel(frequency: ServiceDocument["frequency"]) {
 export async function getExplorerData(db: Db, viewerId: string): Promise<{ listings: Service[]; categories: CategoryOption[]; balance: number; textsEnabled: boolean }> {
   const c = exchangeCollections(db);
   const viewer = new ObjectId(viewerId);
-  const [services, genres, account, viewerUser, openBookings] = await Promise.all([
+  const [services, genres, account, viewerUser, openBookings, ownBookings] = await Promise.all([
     c.services.find({ status: "active" }).sort({ createdAt: -1, _id: -1 }).limit(LISTING_LIMIT).toArray(),
     c.genres.find({ isActive: true }).sort({ name: 1 }).toArray(),
     c.accounts.findOne({ userId: viewer }, { projection: { availableCredits: 1 } }),
     db.collection("user").findOne({ _id: viewer }, { projection: { textsEnabledAt: 1 } }),
     c.bookings.find({ requesterId: viewer, status: { $in: ["requested", "accepted", "awaiting_confirmation"] } }, { projection: { serviceId: 1, status: 1 } })
       .sort({ createdAt: -1 }).toArray(),
+    c.bookings.find({ providerId: viewer, status: { $in: ["accepted", "awaiting_confirmation"] } }, { projection: { serviceId: 1, requesterId: 1 } })
+      .sort({ createdAt: -1 }).toArray(),
   ]);
+  // Accepted bookings of the viewer's own listings, so the owner can finish them too.
+  const requesters = await db.collection("user").find({ _id: { $in: ownBookings.map((b) => b.requesterId) } }, { projection: { firstName: 1, name: 1 } }).toArray();
+  const requesterName = new Map(requesters.map((u) => [u._id.toHexString(), (typeof u.firstName === "string" && u.firstName) || String(u.name ?? "Someone").split(" ")[0]]));
+  const toFinish = new Map<string, NonNullable<Service["toFinish"]>>();
+  for (const booking of ownBookings) {
+    const key = booking.serviceId.toHexString();
+    toFinish.set(key, [...(toFinish.get(key) ?? []), { id: booking._id.toHexString(), requesterFirstName: requesterName.get(booking.requesterId.toHexString()) ?? "Someone" }]);
+  }
   // The viewer's newest open booking per listing, so its modal can show the request or finish it.
   const openBooking = new Map<string, NonNullable<Service["booking"]>>();
   for (const booking of openBookings) {
@@ -55,9 +65,11 @@ export async function getExplorerData(db: Db, viewerId: string): Promise<{ listi
     const owner = provider.get(s.userId.toHexString());
     const zip = s.zipCode ?? null;
     const booking = openBooking.get(s._id.toHexString());
+    const finishable = s.userId.equals(viewer) ? toFinish.get(s._id.toHexString()) : undefined;
     return [{
       ...(s.userId.equals(viewer) ? { editable: editableListing(s) } : {}),
       ...(booking ? { booking } : {}),
+      ...(finishable ? { toFinish: finishable } : {}),
       id: s._id.toHexString(), title: s.title, description: s.description, category,
       images: (s.images ?? []).map((id) => `/api/images/${id.toHexString()}`),
       rating: Number.isFinite(owner?.rating) ? Math.max(0, Math.min(5, owner!.rating)) : 0,

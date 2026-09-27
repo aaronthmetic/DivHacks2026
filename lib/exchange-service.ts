@@ -172,10 +172,10 @@ export function createExchangeService(db: Db, client: MongoClient) {
         const booking = await c.bookings.findOne({ _id: bookingId }, { session });
         requireValue(booking, "Booking not found.");
         const provider = actorId.equals(booking.providerId), requester = actorId.equals(booking.requesterId);
-        requireValue(action === "cancel" ? provider || requester : action === "confirm" ? requester : provider, "This action is not allowed for this user.");
+        requireValue(action === "cancel" || action === "confirm" ? provider || requester : provider, "This action is not allowed for this user.");
         if (booking.status === target) return booking;
-        // The requester can confirm (finish and pay) once the booking is accepted; the provider's
-        // "delivered" step is optional.
+        // Either person can confirm (finish, paying the held coins) once the booking is accepted;
+        // the provider's "delivered" step is optional.
         requireValue(action === "cancel" ? ["requested", "accepted"].includes(booking.status) : action === "deliver" ? booking.status === "accepted" : action === "confirm" ? ["accepted", "awaiting_confirmation"].includes(booking.status) : booking.status === "requested", "Invalid booking transition.");
         const now = new Date();
         const changes = { status: target, updatedAt: now, ...(action === "deliver" ? { providerCompletedAt: now } : {}), ...(action === "confirm" ? { requesterConfirmedAt: now } : {}) };
@@ -199,8 +199,10 @@ export function createExchangeService(db: Db, client: MongoClient) {
             ? { ...toRequester, type: "booking_cancelled", message: `${actor} cancelled your ${title} booking. ${refund}` }
             : { ...about, userId: booking.providerId, type: "booking_cancelled", message: `${actor} cancelled the ${title} booking.` },
           deliver: { ...toRequester, type: "booking_awaiting_confirmation", message: `${actor} marked ${title} as done. Finish the barter to pay them.` },
-          // The provider can now review the requester.
-          confirm: { ...about, userId: booking.providerId, type: "booking_completed", message: `${actor} finished the ${title} barter. ${coinsLabel(amount)} ${one ? "was" : "were"} added to your balance.`, href: `/bookings/${bookingId.toHexString()}/review` },
+          // The other person can now review them.
+          confirm: provider
+            ? { ...about, userId: booking.requesterId, type: "booking_completed", message: `${actor} finished the ${title} barter. Your ${coinsLabel(amount)} ${one ? "was" : "were"} paid to them.`, href: `/bookings/${bookingId.toHexString()}/review` }
+            : { ...about, userId: booking.providerId, type: "booking_completed", message: `${actor} finished the ${title} barter. ${coinsLabel(amount)} ${one ? "was" : "were"} added to your balance.`, href: `/bookings/${bookingId.toHexString()}/review` },
         };
         await notify(session, [notice[action]]);
         return { ...booking, ...changes };

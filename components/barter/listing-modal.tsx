@@ -128,14 +128,23 @@ function ListingBody({ service, requests, onClose, onEdit }: { service: Service;
 }
 
 function Contact({ service, canRequest, sent, providerFirstName, onContact }: { service: Service; canRequest: boolean; sent: boolean; providerFirstName: string; onContact: () => void }) {
-  // Your own listing gets the Edit button instead.
-  if (service.own) return null;
+  // Your own listing gets the Edit button, plus Finish Barter for each accepted booking.
+  if (service.own) {
+    if (!service.toFinish?.length) return null;
+    return (
+      <div className="flex max-w-[300px] shrink-0 flex-col gap-6">
+        {service.toFinish.map(({ id, requesterFirstName }) => (
+          <FinishBarter key={id} bookingId={id} message={`${requesterFirstName} booked this. When it's done, finish the barter to get paid.`} />
+        ))}
+      </div>
+    );
+  }
   // Where requests can't be sent yet, Contact opens the provider's profile.
   if (!canRequest) {
     return <Link href={`/profile/${service.providerId}`} aria-label={`Contact ${service.providerName}`} className={contactButton}>Contact</Link>;
   }
   if (service.booking && service.booking.status !== "requested") {
-    return <FinishBarter bookingId={service.booking.id} providerFirstName={providerFirstName} />;
+    return <FinishBarter bookingId={service.booking.id} message={`${providerFirstName} accepted your request. When it's done, finish the barter to pay them.`} />;
   }
   // An open request (sent just now or earlier) waits for the provider's answer by text.
   if (sent || service.booking) {
@@ -151,8 +160,8 @@ function Contact({ service, canRequest, sent, providerFirstName, onContact }: { 
   );
 }
 
-// The requester pays the provider the coins held since the request, then reviews them.
-function FinishBarter({ bookingId, providerFirstName }: { bookingId: string; providerFirstName: string }) {
+// Either person finishes: the provider gets the coins held since the request, then each reviews the other.
+function FinishBarter({ bookingId, message: prompt }: { bookingId: string; message: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -175,7 +184,7 @@ function FinishBarter({ bookingId, providerFirstName }: { bookingId: string; pro
   }
   return (
     <div className="flex max-w-[300px] shrink-0 flex-col gap-3">
-      <p className="font-mono text-base text-barter-gray lg:text-lg">{providerFirstName} accepted your request. When it&apos;s done, finish the barter to pay them.</p>
+      <p className="font-mono text-base text-barter-gray lg:text-lg">{prompt}</p>
       <button type="button" onClick={finish} disabled={busy} className={cn(contactButton, "disabled:opacity-60")}>
         {busy ? "Finishing…" : "Finish Barter"}
       </button>

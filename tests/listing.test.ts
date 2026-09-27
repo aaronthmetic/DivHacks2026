@@ -164,7 +164,7 @@ test("the explorer lists active listings with provider ratings and labels", asyn
   assert.deepEqual(data.listings.find((listing) => listing.id === shown._id.toHexString()), {
     id: shown._id.toHexString(), title: "Laptop setup", description: "Homework and test prep.", category: "Tech", images: [],
     rating: 4.5, ratingCount: 2, location: "Morningside Heights", zip: "10027",
-    tags: ["12 coins / service", "In person", "One time"],
+    tags: ["12 coins / service", "In person", "One time"], availability: storedAvailability,
     providerId: provider.id.toHexString(), providerName: "List Owner", own: false,
   });
   assert.equal(data.balance, 10);

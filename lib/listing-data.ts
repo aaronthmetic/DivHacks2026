@@ -45,7 +45,7 @@ export async function getExplorerData(db: Db, viewerId: string): Promise<{ listi
       rating: Number.isFinite(owner?.rating) ? Math.max(0, Math.min(5, owner!.rating)) : 0,
       ratingCount: Number.isFinite(owner?.numberOfReviews) ? Math.max(0, owner!.numberOfReviews) : 0,
       location: zip ? neighborhood.get(zip) ?? `ZIP ${zip}` : "Remote",
-      zip, tags: [priceLabel(s), DELIVERY[s.deliveryMode], frequencyLabel(s.frequency)],
+      zip, tags: [priceLabel(s), DELIVERY[s.deliveryMode], frequencyLabel(s.frequency)], availability: s.availability ?? [],
       providerId: s.userId.toHexString(), providerName: owner?.name || "Member", own: s.userId.equals(viewer),
     }];
   });

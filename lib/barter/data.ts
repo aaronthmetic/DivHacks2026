@@ -1,6 +1,8 @@
 // Types for the barter UI. Listings come from MongoDB (lib/listing-data.ts); zip
 // areas and notifications are still mock data until they have a real source.
 
+import type { AvailabilityWindow } from "../exchange-schema";
+
 export type Service = {
   id: string;
   title: string;
@@ -17,6 +19,8 @@ export type Service = {
   zip: string | null;
   /** Price, delivery and frequency labels. */
   tags: string[];
+  /** Weekly windows in New York time; empty for listings posted before availability existed. */
+  availability: AvailabilityWindow[];
   providerId: string;
   providerName: string;
   /** Whether the signed-in viewer posted this listing. */

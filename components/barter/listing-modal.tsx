@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Star, X } from "lucide-react";
 import type { Service } from "@/lib/barter/data";
+import { formatAvailability } from "@/lib/availability";
 import { starFill } from "@/lib/profile-display";
 import { cn } from "@/lib/utils";
 import { Modal } from "./modal";
@@ -61,6 +62,11 @@ export function ListingModal({
                   </li>
                 ))}
               </ul>
+              <h3 className="mt-6 font-mono text-xl font-bold lg:mt-8 lg:text-2xl">Availability</h3>
+              <p className="mt-3 font-mono text-base text-barter-gray lg:mt-4 lg:text-xl">
+                {formatAvailability(service.availability)}
+                {service.availability.length > 0 && " (New York time)"}
+              </p>
             </section>
             {/* Messaging doesn't exist yet, so Contact opens the provider's profile. */}
             <Link

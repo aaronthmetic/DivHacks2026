@@ -20,10 +20,6 @@ import { ServiceArt } from "./results";
 
 type AcceptedBooking = {
   id: string;
-  serviceId: string;
-  providerId: string;
-  requesterId: string;
-  status: "accepted";
 };
 
 export function ListingModal({
@@ -43,19 +39,30 @@ export function ListingModal({
   const [checkingBooking, setCheckingBooking] =
     useState(false);
 
-  const [finishingBooking, setFinishingBooking] =
-    useState(false);
+  const [
+    creatingTestBooking,
+    setCreatingTestBooking,
+  ] = useState(false);
+
+  const [
+    finishingBooking,
+    setFinishingBooking,
+  ] = useState(false);
 
   const [bookingError, setBookingError] =
     useState<string | null>(null);
 
+  // Used when creating a test booking for an hourly service.
+  const durationMinutes = 60;
+
   /*
-   * Whenever a service is opened, check whether the
-   * currently logged-in user is involved in an accepted
-   * booking for that service.
+   * Check whether the current user already has an accepted
+   * booking involving this service.
+   *
+   * If one exists, "Contact" becomes "Finish Barter".
    */
   useEffect(() => {
-    if (!service) {
+    if (!service || service.own) {
       setAcceptedBooking(null);
       setCheckingBooking(false);
       setBookingError(null);
@@ -76,30 +83,29 @@ export function ListingModal({
           )}&status=accepted`,
           {
             method: "GET",
-            cache: "no-store",
             signal: controller.signal,
+            cache: "no-store",
           },
         );
 
         const data = await response.json();
 
         if (!response.ok) {
-          /*
-           * If there is no logged-in user, don't prevent
-           * the listing from being viewed.
-           */
-          if (response.status === 401) {
-            setAcceptedBooking(null);
-            return;
-          }
-
           throw new Error(
             data.error ??
-              "Failed to check for accepted booking",
+              "Failed to check existing booking",
           );
         }
 
-        setAcceptedBooking(data.booking ?? null);
+        if (!controller.signal.aborted) {
+          setAcceptedBooking(
+            data.booking
+              ? {
+                  id: data.booking.id,
+                }
+              : null,
+          );
+        }
       } catch (error) {
         if (
           error instanceof DOMException &&
@@ -113,7 +119,13 @@ export function ListingModal({
           error,
         );
 
-        setAcceptedBooking(null);
+        if (!controller.signal.aborted) {
+          setBookingError(
+            error instanceof Error
+              ? error.message
+              : "Failed to check booking",
+          );
+        }
       } finally {
         if (!controller.signal.aborted) {
           setCheckingBooking(false);
@@ -126,14 +138,91 @@ export function ListingModal({
     return () => {
       controller.abort();
     };
-  }, [service?.id]);
+  }, [service]);
 
   /*
-   * Mark the accepted booking as completed, then go
-   * directly to the review page for that booking.
+   * TEST BUTTON
+   *
+   * Creates a booking using the service currently open in
+   * this modal and requests that the API immediately set its
+   * status to "accepted".
+   */
+  async function createAcceptedTestBooking() {
+  if (
+    !service ||
+    service.own ||
+    creatingTestBooking
+  ) {
+    return;
+  }
+
+  try {
+    setCreatingTestBooking(true);
+    setBookingError(null);
+
+    const response = await fetch("/api/bookings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        serviceId: service.id,
+
+        // Always send a positive duration.
+        // Fixed-price services can simply ignore it.
+        durationMinutes:
+          durationMinutes > 0
+            ? durationMinutes
+            : 60,
+
+        status: "accepted",
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ??
+          "Failed to create accepted test booking",
+      );
+    }
+
+    console.log(
+      "Created accepted test booking:",
+      data.booking,
+    );
+
+    setAcceptedBooking({
+      id: data.booking.id,
+    });
+
+    router.refresh();
+  } catch (error) {
+    console.error(
+      "Failed to create accepted test booking:",
+      error,
+    );
+
+    setBookingError(
+      error instanceof Error
+        ? error.message
+        : "Failed to create accepted test booking",
+    );
+  } finally {
+    setCreatingTestBooking(false);
+  }
+}
+
+  /*
+   * Marks the accepted booking as completed, then redirects
+   * to that booking's review page.
    */
   async function finishBarter() {
-    if (!acceptedBooking || finishingBooking) {
+    if (
+      !acceptedBooking ||
+      finishingBooking
+    ) {
       return;
     }
 
@@ -158,7 +247,8 @@ export function ListingModal({
 
       if (!response.ok) {
         throw new Error(
-          data.error ?? "Failed to finish barter",
+          data.error ??
+            "Failed to complete booking",
         );
       }
 
@@ -276,35 +366,26 @@ export function ListingModal({
               </p>
             </section>
 
-            <div className="shrink-0">
-              {/*
-               * If an accepted booking exists, replace
-               * Contact with Finish Barter.
-               */}
-              {acceptedBooking ? (
-                <button
-                  type="button"
-                  onClick={finishBarter}
-                  disabled={finishingBooking}
-                  className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
-                >
-                  {finishingBooking
-                    ? "Finishing..."
-                    : "Finish Barter"}
-                </button>
-              ) : !service.own ? (
-                /*
-                 * While the accepted-booking check is
-                 * running, disable Contact so the wrong
-                 * action cannot briefly be clicked.
-                 */
-                checkingBooking ? (
+            {!service.own && (
+              <div className="flex shrink-0 flex-col gap-3">
+                {checkingBooking ? (
                   <button
                     type="button"
                     disabled
-                    className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white opacity-60 lg:h-[68px] lg:text-2xl"
+                    className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white opacity-50 lg:h-[68px] lg:text-2xl"
                   >
                     Checking...
+                  </button>
+                ) : acceptedBooking ? (
+                  <button
+                    type="button"
+                    onClick={finishBarter}
+                    disabled={finishingBooking}
+                    className="flex h-14 items-center justify-center rounded-[10px] bg-barter-navy px-10 font-mono text-xl font-extrabold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-barter-blue lg:h-[68px] lg:text-2xl"
+                  >
+                    {finishingBooking
+                      ? "Finishing..."
+                      : "Finish Barter"}
                   </button>
                 ) : (
                   <Link
@@ -314,15 +395,29 @@ export function ListingModal({
                   >
                     Contact
                   </Link>
-                )
-              ) : null}
+                )}
 
-              {bookingError && (
-                <p className="mt-3 max-w-[280px] font-mono text-sm font-bold text-red-600">
-                  {bookingError}
-                </p>
-              )}
-            </div>
+                {/* TEST BUTTON */}
+                <button
+                  type="button"
+                  onClick={
+                    createAcceptedTestBooking
+                  }
+                  disabled={creatingTestBooking}
+                  className="flex h-12 items-center justify-center rounded-[10px] bg-red-600 px-6 font-mono text-base font-extrabold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {creatingTestBooking
+                    ? "Creating Test Booking..."
+                    : "Test Accepted Booking"}
+                </button>
+
+                {bookingError && (
+                  <p className="max-w-[320px] font-mono text-sm font-bold text-red-600">
+                    {bookingError}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {service.own && onEdit && (

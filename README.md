@@ -72,7 +72,9 @@ Only text is passed along. For photos and other content, the other person gets a
 
 ## Map
 
-The map shows one card per zip code, with up to three cards fanned out when a zip has several services. Cards that would overlap merge into one stack ("2 areas"); click it to zoom in. Hovering a card or a zip's area highlights the area, and clicking selects it.
+The map shows one card per zip code, with up to three cards fanned out when a zip has several services. Cards that would overlap merge into one stack ("2 areas"); click it to zoom in. Hovering a card or a zip's area highlights the area. Clicking one shows only that zip's listings in the results; click it again to show all.
+
+The search box loads `/?search=<text>` and keeps listings whose title or category contains the text, on the map and in the results.
 
 - `GOOGLE_MAPS_API_KEY`: your Maps JavaScript API key.
 - `GOOGLE_MAPS_MAP_ID` (optional): sets the map style. To hide businesses and transit, create a map style in Google Cloud with points of interest and transit turned off, create a JavaScript Map ID under Map Management, attach the style to it, and put the ID here. Without it, the map uses Google's demo Map ID.

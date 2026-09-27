@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode, SVGProps } from "react";
@@ -10,11 +11,13 @@ export function Header({
   openPanel,
   onToggle,
   unreadCount,
+  query,
   filters,
 }: {
   openPanel: Panel | null;
   onToggle: (panel: Panel) => void;
   unreadCount: number;
+  query: string;
   filters: ReactNode;
 }) {
   const menuOpen = openPanel === "menu";
@@ -45,7 +48,7 @@ export function Header({
         />
       </Link>
       <div className="relative mr-[clamp(1.5rem,11vw,13rem)] ml-[clamp(1.5rem,10vw,11rem)] hidden flex-1 items-center gap-7 lg:flex">
-        <SearchInput className="h-[58px] flex-1" />
+        <SearchInput query={query} className="h-[58px] flex-1" />
         <button
           type="button"
           onClick={() => onToggle("filters")}
@@ -89,29 +92,43 @@ export function Header({
   );
 }
 
+// Submits to /?search=…, which the page passes back down as `query`.
 export function SearchInput({
+  query,
   outlined = false,
   className,
+  onSubmit,
 }: {
+  query: string;
   outlined?: boolean;
   className?: string;
+  onSubmit?: () => void;
 }) {
   return (
-    <label
+    <Form
+      action="/"
+      role="search"
+      onSubmit={onSubmit}
       className={cn(
         "flex items-center gap-3 rounded-lg bg-white px-6 focus-within:ring-2 focus-within:ring-barter-blue",
         outlined && "border border-barter-line px-[18px]",
         className,
       )}
     >
-      <span className="sr-only">Search services</span>
       <input
+        // Remounts when the search changes elsewhere (the logo link clears it).
+        key={query}
+        name="search"
         type="search"
+        defaultValue={query}
+        aria-label="Search services"
         placeholder="Search..."
-        className="min-w-0 flex-1 bg-transparent text-[15px] text-black outline-none placeholder:text-black [&::-webkit-search-cancel-button]:hidden"
+        className="min-w-0 flex-1 self-stretch bg-transparent text-[15px] text-black outline-none placeholder:text-black [&::-webkit-search-cancel-button]:hidden"
       />
-      <Search aria-hidden className="size-6 shrink-0 text-black" strokeWidth={2} />
-    </label>
+      <button type="submit" aria-label="Search" className="shrink-0 text-black">
+        <Search aria-hidden className="size-6" strokeWidth={2} />
+      </button>
+    </Form>
   );
 }
 

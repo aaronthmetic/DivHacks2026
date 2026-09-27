@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Notification, Service, ZipArea } from "@/lib/barter/data";
 import { Header, type Panel, SearchInput } from "./header";
 import { FiltersPanel, NotificationsPanel } from "./panels";
@@ -13,8 +13,8 @@ const ServiceMap = dynamic(() => import("./service-map"), {
   loading: () => <div className="size-full bg-[#e9ecef]" />,
 });
 
-// UI only for now: panels open and close, but search, filters, marker
-// selection and dragging the results sheet aren't wired up yet.
+// Search and zip selection work; filters and dragging the results sheet
+// aren't wired up yet.
 export function Explorer({
   services,
   areas,
@@ -35,6 +35,19 @@ export function Explorer({
   const [panel, setPanel] = useState<Panel | null>(null);
   const toggle = (next: Panel) =>
     setPanel((current) => (current === next ? null : next));
+  // Picking a zip on the map narrows the results to it; picking it again clears it.
+  const [selectedZip, setSelectedZip] = useState<string | null>(null);
+  // Stable, so the map doesn't re-add its zip outlines on every render.
+  const toggleZip = useCallback(
+    (zip: string) =>
+      setSelectedZip((current) => (current === zip ? null : zip)),
+    [],
+  );
+  // The search narrows the map and the results; the zip only the results.
+  const matches = searchServices(services, query);
+  const listed = selectedZip
+    ? matches.filter((service) => service.zip === selectedZip)
+    : matches;
 
   useEffect(() => {
     if (!panel) return;
@@ -59,6 +72,7 @@ export function Explorer({
         openPanel={panel}
         onToggle={toggle}
         unreadCount={unreadCount}
+        query={query}
         filters={filters}
       />
       <main className="relative flex min-h-0 flex-1 bg-[#e9ecef]">
@@ -77,8 +91,10 @@ export function Explorer({
             apiKey={mapsApiKey}
             mapId={mapsMapId}
             areas={areas}
-            services={services}
+            services={matches}
             initialZip={initialZip}
+            selectedZip={selectedZip}
+            onToggleZip={toggleZip}
           />
         </div>
         {/* Scroll areas are `relative` so absolutely positioned children (the
@@ -88,7 +104,7 @@ export function Explorer({
           aria-label="Results"
           className="relative hidden min-w-0 flex-1 overflow-y-auto lg:block"
         >
-          <ResultsPanel services={services} query={query} />
+          <ResultsPanel services={listed} query={query} zip={selectedZip} />
         </section>
         <section
           aria-label="Results"
@@ -99,7 +115,12 @@ export function Explorer({
             className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-barter-line"
           />
           <div className="relative min-h-0 flex-1 overflow-y-auto">
-            <ResultsPanel services={services} query={query} compact />
+            <ResultsPanel
+              services={listed}
+              query={query}
+              zip={selectedZip}
+              compact
+            />
           </div>
         </section>
         {panel === "notifications" && (
@@ -116,12 +137,29 @@ export function Explorer({
             className="absolute inset-0 z-20 overflow-y-auto bg-white lg:hidden"
           >
             <div className="px-4 pt-[13px] pb-3">
-              <SearchInput outlined className="h-14" />
+              <SearchInput
+                query={query}
+                outlined
+                className="h-14"
+                // Close the menu so the results show.
+                onSubmit={() => setPanel(null)}
+              />
             </div>
             {filters}
           </div>
         )}
       </main>
     </div>
+  );
+}
+
+// Case-insensitive match on the title or category.
+function searchServices(services: Service[], query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return services;
+  return services.filter((service) =>
+    [service.title, service.category].some((text) =>
+      text.toLowerCase().includes(needle),
+    ),
   );
 }

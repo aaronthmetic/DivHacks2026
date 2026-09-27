@@ -47,20 +47,30 @@ export function ServiceArt({
   );
 }
 
+// `services` is already narrowed to `query` and the zip picked on the map.
 export function ResultsPanel({
   services,
   query,
+  zip,
   compact = false,
 }: {
   services: Service[];
   query: string;
+  zip: string | null;
   compact?: boolean;
 }) {
   return (
     <div className={compact ? "px-6 pt-4 pb-6" : "px-5 pt-6 pb-8"}>
       <h2 className="text-xl font-bold text-black">
-        Looking for “{query || "anything"}”.
+        Looking for “{query || "anything"}”{zip && ` in ${zip}`}.
       </h2>
+      {services.length === 0 && (
+        <p className="mt-4 text-[15px] text-barter-gray">
+          {query || zip
+            ? "No listings match. Try another search or area."
+            : "No listings yet."}
+        </p>
+      )}
       <ul
         className={cn(
           "grid",

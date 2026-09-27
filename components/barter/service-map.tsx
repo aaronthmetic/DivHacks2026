@@ -44,12 +44,17 @@ export default function ServiceMap({
   areas,
   services,
   initialZip,
+  selectedZip,
+  onToggleZip,
 }: {
   apiKey: string | undefined;
   mapId: string | undefined;
   areas: ZipArea[];
   services: Service[];
   initialZip: string | null;
+  selectedZip: string | null;
+  /** Should keep the same identity across renders; it's a map listener dependency. */
+  onToggleZip: (zip: string) => void;
 }) {
   if (!apiKey) {
     return (
@@ -65,6 +70,8 @@ export default function ServiceMap({
         areas={areas}
         services={services}
         initialZip={initialZip}
+        selectedZip={selectedZip}
+        onToggleZip={onToggleZip}
       />
     </APIProvider>
   );
@@ -75,11 +82,15 @@ function ZipMap({
   areas,
   services,
   initialZip,
+  selectedZip,
+  onToggleZip,
 }: {
   mapId: string;
   areas: ZipArea[];
   services: Service[];
   initialZip: string | null;
+  selectedZip: string | null;
+  onToggleZip: (zip: string) => void;
 }) {
   const status = useApiLoadingStatus();
   const [phone] = useState(
@@ -111,7 +122,8 @@ function ZipMap({
       <ZipLayer
         areas={areas}
         services={services}
-        initialZip={initialZip}
+        selectedZip={selectedZip}
+        onToggleZip={onToggleZip}
         phone={phone}
       />
     </GoogleMap>
@@ -121,29 +133,25 @@ function ZipMap({
 function ZipLayer({
   areas,
   services,
-  initialZip,
+  selectedZip,
+  onToggleZip,
   phone,
 }: {
   areas: ZipArea[];
   services: Service[];
-  initialZip: string | null;
+  selectedZip: string | null;
+  onToggleZip: (zip: string) => void;
   phone: boolean;
 }) {
   const map = useMap();
   const zoom = useMapZoom(map);
-  const [selectedZip, setSelectedZip] = useState(initialZip);
   const [hoveredZips, setHoveredZips] = useState<string[]>([]);
-  const toggleZip = useCallback(
-    (zip: string) =>
-      setSelectedZip((current) => (current === zip ? null : zip)),
-    [],
-  );
 
   useZipOutlines(map, {
     selectedZip,
     hoveredZips,
     onHover: setHoveredZips,
-    onToggle: toggleZip,
+    onToggle: onToggleZip,
   });
 
   // Stacks that would overlap on screen at this zoom merge into one.
@@ -169,7 +177,7 @@ function ZipLayer({
         onMouseEnter={() => setHoveredZips(zips)}
         onMouseLeave={() => setHoveredZips([])}
         onClick={() =>
-          merged ? zoomToZips(map, group.zips, phone) : toggleZip(zips[0])
+          merged ? zoomToZips(map, group.zips, phone) : onToggleZip(zips[0])
         }
       >
         <CardStack

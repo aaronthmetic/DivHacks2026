@@ -56,6 +56,18 @@ test("profile DTOs protect privacy, filter listings, order bookings, and paginat
   assert.equal(await getProfileData(db, new ObjectId().toHexString(), owner.toHexString(), "1"), null);
 });
 
+test("reviews name the service that was booked", async () => {
+  const subject = new ObjectId(), author = new ObjectId(), bookingId = new ObjectId();
+  await db.collection("user").insertMany([{ _id: subject, name: "Subject", email: "subject@example.com" }, { _id: author, name: "Author", email: "author@example.com" }]);
+  await db.collection("booking").insertOne({ _id: bookingId, serviceSnapshot: { title: "Guitar Lessons", description: "Lessons" }, status: "completed", requesterId: author, providerId: subject, totalCredits: 100 });
+  await db.collection("review").insertMany([
+    { bookingId, subjectUserId: subject, authorId: author, rating: 5, comment: "Great", createdAt: new Date(2000) },
+    { bookingId: new ObjectId(), subjectUserId: subject, authorId: author, rating: 4, comment: "Good", createdAt: new Date(1000) },
+  ]);
+  const profile = (await getProfileData(db, subject.toHexString(), author.toHexString(), "1"))!;
+  assert.deepEqual(profile.reviews.map(review => review.serviceTitle), ["Guitar Lessons", undefined]);
+});
+
 test("fractional star fills and review page bounds", () => {
   assert.deepEqual([0, 1, 2, 3, 4].map(i => Math.round(starFill(3.7, i))), [100, 100, 100, 70, 0]);
   assert.equal(starFill(NaN, 0), 0); assert.equal(starFill(-1, 0), 0); assert.equal(starFill(8, 4), 100);

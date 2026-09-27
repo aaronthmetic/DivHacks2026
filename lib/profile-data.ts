@@ -15,7 +15,7 @@ export interface ProfileData {
   id: string; name: string; image: string; rating: number; reviewCount: number; isOwner: boolean;
   categories?: CategoryOption[];
   listings: ProfileCard[]; bookings: ProfileCard[];
-  reviews: { id: string; authorId: string; authorName: string; authorImage: string; rating: number; comment: string; date: string }[];
+  reviews: { id: string; authorId: string; authorName: string; authorImage: string; rating: number; comment: string; date: string; serviceTitle?: string }[];
   reviewsPage: number; reviewPages: number;
 }
 export function reviewPage(value: unknown, pages: number) {
@@ -44,7 +44,11 @@ export async function getProfileData(db: Db, profileId: string, viewerId: string
   const reviewPages = Math.max(1, Math.ceil(total / 10));
   const reviewsPage = reviewPage(page, reviewPages);
   const reviews = await c.reviews.find({ subjectUserId: id }).sort({ createdAt: -1, _id: -1 }).skip((reviewsPage - 1) * 10).limit(10).toArray();
-  const people = await db.collection("user").find({ _id: { $in: [...reviews.map(r => r.authorId), ...bookings.map(b => b.providerId), ...services.map(s => s.userId)] } }, { projection: { name: 1, image: 1, rating: 1, numberOfReviews: 1, textsEnabledAt: 1 } }).toArray();
+  const [people, reviewedBookings] = await Promise.all([
+    db.collection("user").find({ _id: { $in: [...reviews.map(r => r.authorId), ...bookings.map(b => b.providerId), ...services.map(s => s.userId)] } }, { projection: { name: 1, image: 1, rating: 1, numberOfReviews: 1, textsEnabledAt: 1 } }).toArray(),
+    c.bookings.find({ _id: { $in: reviews.map(r => r.bookingId) } }, { projection: { "serviceSnapshot.title": 1 } }).toArray(),
+  ]);
+  const reviewedServices = new Map(reviewedBookings.map(b => [b._id.toHexString(), b.serviceSnapshot.title]));
   const neighborhoods = new Map([["10024", "Upper West Side"], ["10025", "Manhattan Valley"], ["10026", "Central Harlem"], ["10027", "Morningside Heights"], ["10029", "East Harlem"], ["10031", "Hamilton Heights"]]);
   const person = new Map(people.map(p => [p._id.toHexString(), p]));
   bookings.sort((a, b) => {
@@ -82,6 +86,7 @@ export async function getProfileData(db: Db, profileId: string, viewerId: string
         ...(b.serviceSnapshot.deliveryMode ? [status(b.serviceSnapshot.deliveryMode)] : []),
         ...(b.serviceSnapshot.zipCode ? [[b.serviceSnapshot.zipCode, b.serviceSnapshot.countryCode].filter(Boolean).join(", ")] : [])] })),
     reviews: reviews.map(r => ({ id: r._id.toHexString(), authorId: r.authorId.toHexString(), authorName: person.get(r.authorId.toHexString())?.name || "Former member",
-      authorImage: person.get(r.authorId.toHexString())?.image || DEFAULT_AVATAR, rating: r.rating, comment: r.comment, date: r.createdAt.toISOString().slice(0, 10) })),
+      authorImage: person.get(r.authorId.toHexString())?.image || DEFAULT_AVATAR, rating: r.rating, comment: r.comment, date: r.createdAt.toISOString().slice(0, 10),
+      serviceTitle: reviewedServices.get(r.bookingId.toHexString()) })),
   };
 }

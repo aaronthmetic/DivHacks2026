@@ -46,9 +46,10 @@ export async function createBookingRequest(request: Request, auth: Auth, db: Db,
     if (!provider?.textsEnabledAt) return apiError(409, "PROVIDER_UNAVAILABLE", "Requests aren't available for this provider yet.");
     const hourly = service.pricingType === "hourly";
     if (hourly && input.hours === undefined) throw new InputError("Choose how many hours.");
+    // Read everything before holding the coins, so only the provider's text can fail after the hold.
+    const offers = (await c.services.find({ userId: requesterId, status: "active" }, { projection: { title: 1 } }).sort({ createdAt: -1 }).toArray()).map((s) => s.title);
     const domain = createExchangeService(db, client);
     const booking = await domain.requestBooking(requesterId, service._id, { ...(hourly ? { durationMinutes: input.hours! * 60 } : {}), preferredWindow: input.window, note: input.note });
-    const offers = (await c.services.find({ userId: requesterId, status: "active" }, { projection: { title: 1 } }).sort({ createdAt: -1 }).toArray()).map((s) => s.title);
     try {
       await messenger.send(provider.phoneNumber, requestText({ requesterName: requester.name, requesterFirstName: requester.firstName, title: service.title, pricingType: service.pricingType, totalCredits: booking.totalCredits, hours: input.hours, window: booking.preferredWindow, offers, note: booking.note, code: bookingCode(booking._id) }));
     } catch (error) {

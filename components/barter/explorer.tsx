@@ -59,6 +59,7 @@ export function Explorer({
 
   const [panel, setPanel] = useState<Panel | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showOwnListings, setShowOwnListings] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
   const [, startTransition] = useTransition();
@@ -90,7 +91,7 @@ export function Explorer({
   /*
    * Filtering pipeline:
    *
-   * all services
+   * services (excluding your own unless enabled)
    *      ↓
    * search query
    *      ↓
@@ -104,7 +105,7 @@ export function Explorer({
    */
 
   const searchedServices = searchServices(
-    services,
+    showOwnListings ? services : services.filter((service) => !service.own),
     query,
   );
 
@@ -201,6 +202,8 @@ export function Explorer({
             query={query}
             zip={selectedZip}
             onSelect={select}
+            showOwnListings={showOwnListings}
+            onShowOwnListingsChange={setShowOwnListings}
           />
         </section>
 
@@ -220,6 +223,8 @@ export function Explorer({
               query={query}
               zip={selectedZip}
               onSelect={select}
+              showOwnListings={showOwnListings}
+              onShowOwnListingsChange={setShowOwnListings}
               compact
             />
           </div>

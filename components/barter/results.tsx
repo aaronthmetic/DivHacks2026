@@ -123,6 +123,8 @@ export function ResultsPanel({
   zip,
   onSelect,
   compact = false,
+  showOwnListings,
+  onShowOwnListingsChange,
 }: {
   services: Service[];
   query: string;
@@ -131,6 +133,8 @@ export function ResultsPanel({
     service: Service,
   ) => void;
   compact?: boolean;
+  showOwnListings: boolean;
+  onShowOwnListingsChange: (show: boolean) => void;
 }) {
   const hasSearch =
     query.trim().length > 0;
@@ -143,14 +147,25 @@ export function ResultsPanel({
           : "px-5 pt-6 pb-8"
       }
     >
-      <h2 className="text-xl font-bold text-black">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="min-w-0 break-words text-xl font-bold text-black">
         {hasSearch
           ? `Search results for “${query.trim()}”`
-          : "Browse services"}
+          : "Browse listings"}
         {zip
           ? ` in ${zip}`
           : ""}
       </h2>
+      <label className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-sm text-barter-gray">
+        <input
+          type="checkbox"
+          checked={showOwnListings}
+          onChange={(event) => onShowOwnListingsChange(event.target.checked)}
+          className="size-4 accent-barter-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-barter-blue"
+        />
+        Show my listings
+      </label>
+      </div>
 
       {services.length === 0 && (
         <p className="mt-4 text-[15px] text-barter-gray">

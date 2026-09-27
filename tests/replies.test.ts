@@ -4,7 +4,7 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { createAuth, type Auth } from "../lib/auth-config";
 import { ensureAuthIndexes } from "../lib/auth-indexes";
-import { handleInboundText, parseReply } from "../lib/booking-replies";
+import { handleInboundText, parseReply, type InboundDeps } from "../lib/booking-replies";
 import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, bookingCode } from "../lib/booking-texts";
 import { ensureDefaultGenres, ensureExchangeIndexes, exchangeCollections } from "../lib/exchange-schema";
 import { createExchangeService } from "../lib/exchange-service";
@@ -39,6 +39,22 @@ async function request(requesterId: ObjectId, providerId: ObjectId, title = "Gui
 function messenger() {
   const sent: { phone: string; text: string }[] = [];
   return { sent, async send(phone: string, text: string) { sent.push({ phone, text }); } };
+}
+// Records calls to the assistant without running one, so routing can be tested without a real LLM.
+function fakeCoordinate() {
+  const calls: { sender: Parameters<NonNullable<InboundDeps["coordinate"]>>[3]; text: string }[] = [];
+  const fn: NonNullable<InboundDeps["coordinate"]> = async (_db, _messenger, _llm, sender, text) => { calls.push({ sender, text }); };
+  return { calls, fn };
+}
+// Records calls to the expiry sweep; `throws` simulates it failing.
+function fakeExpire({ throws = false } = {}) {
+  const calls: Date[] = [];
+  const fn: NonNullable<InboundDeps["expire"]> = async (_db, _client, _messenger, now = new Date()) => {
+    calls.push(now);
+    if (throws) throw new Error("expiry boom");
+    return 0;
+  };
+  return { calls, fn };
 }
 
 test("replies are YES or NO with an optional code", () => {
@@ -79,10 +95,16 @@ test("YES accepts the only waiting request and NO declines with a refund", async
     "barter: You declined Barry's Piano Lessons request.",
     "barter: Emily can't take your Piano Lessons request this time. Your 1 coin is back in your balance.",
   ]);
+  // Emily now has an accepted booking (first) and no requests waiting: a bare "yes" reaches the
+  // assistant instead of Part A's "no requests waiting" (Part B's routing change).
   texts.sent.length = 0;
-  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "yes" });
-  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: `yes ${bookingCode(second._id)}` });
-  assert.deepEqual(texts.sent.map((text) => text.text), [NO_REQUESTS_TEXT, ALREADY_ANSWERED_TEXT]);
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: "yes" }, { coordinate: assistant.fn });
+  await handleInboundText(db, client, texts, { senderPhone: emily.phone, text: `yes ${bookingCode(second._id)}` }, { coordinate: assistant.fn });
+  assert.equal(assistant.calls.length, 1);
+  assert.equal(assistant.calls[0].text, "yes");
+  assert.equal(assistant.calls[0].sender.phoneNumber, emily.phone);
+  assert.deepEqual(texts.sent.map((text) => text.text), [ALREADY_ANSWERED_TEXT]);
 });
 
 test("with several requests waiting, the code picks one", async () => {
@@ -111,4 +133,84 @@ test("codes that collide are listed with six characters", async () => {
   await handleInboundText(db, client, texts, { senderPhone: jo.phone, text: "yes bb7f3a" });
   assert.equal((await bookings.findOne({ _id: b }))?.status, "accepted");
   assert.equal((await bookings.findOne({ _id: a }))?.status, "requested");
+});
+
+test("free text from a requester with an accepted booking reaches the assistant", async () => {
+  const barry = await person(20, "Barry2"), emily = await person(21, "Emily2");
+  const booking = await request(barry.id, emily.id);
+  await createExchangeService(db, client).transitionBooking(emily.id, booking._id, "accept");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: barry.phone, text: "Sat 11 AM works" }, { coordinate: assistant.fn });
+  assert.equal(assistant.calls.length, 1);
+  assert.equal(assistant.calls[0].sender._id.toString(), barry.id.toString());
+  assert.equal(assistant.calls[0].sender.firstName, "Barry2");
+  assert.equal(assistant.calls[0].sender.phoneNumber, barry.phone);
+  assert.equal(assistant.calls[0].text, "Sat 11 AM works");
+  assert.equal(texts.sent.length, 0);
+});
+
+test("a bare yes accepts a waiting request even when the sender also has an accepted booking", async () => {
+  const provider = await person(22, "ProviderB"), requesterA = await person(23, "RequesterA"), requesterB = await person(24, "RequesterB");
+  const waiting = await request(requesterA.id, provider.id, "Tutoring");
+  const active = await request(requesterB.id, provider.id, "Piano Lessons");
+  await createExchangeService(db, client).transitionBooking(provider.id, active._id, "accept");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: provider.phone, text: "yes" }, { coordinate: assistant.fn });
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: waiting._id }))?.status, "accepted");
+  assert.equal(assistant.calls.length, 0);
+});
+
+test("YES with a code still goes to Part A even with an accepted booking present", async () => {
+  const provider = await person(25, "ProviderC"), requesterA = await person(26, "RequesterC"), requesterB = await person(27, "RequesterD");
+  const waiting = await request(requesterA.id, provider.id, "Tutoring");
+  const active = await request(requesterB.id, provider.id, "Piano Lessons");
+  await createExchangeService(db, client).transitionBooking(provider.id, active._id, "accept");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: provider.phone, text: `yes ${bookingCode(waiting._id)}` }, { coordinate: assistant.fn });
+  assert.equal((await exchangeCollections(db).bookings.findOne({ _id: waiting._id }))?.status, "accepted");
+  assert.equal(assistant.calls.length, 0);
+});
+
+test("free text with no active booking gets HELP_TEXT", async () => {
+  const solo = await person(28, "SoloD");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: solo.phone, text: "hello there" }, { coordinate: assistant.fn });
+  assert.deepEqual(texts.sent, [{ phone: solo.phone, text: HELP_TEXT }]);
+  assert.equal(assistant.calls.length, 0);
+});
+
+test("a bare yes with no bookings at all still goes to Part A for no requests waiting", async () => {
+  const solo = await person(31, "SoloG");
+  const texts = messenger();
+  const assistant = fakeCoordinate();
+  await handleInboundText(db, client, texts, { senderPhone: solo.phone, text: "yes" }, { coordinate: assistant.fn });
+  assert.deepEqual(texts.sent, [{ phone: solo.phone, text: NO_REQUESTS_TEXT }]);
+  assert.equal(assistant.calls.length, 0);
+});
+
+test("expiry runs on each handled text but not for unknown senders or the first text", async () => {
+  const newcomer = await person(29, "NewcomerE", false);
+  const texts = messenger();
+  const expiry = fakeExpire();
+  await handleInboundText(db, client, texts, { senderPhone: "+12025550999", text: "YES" }, { expire: expiry.fn });
+  assert.equal(expiry.calls.length, 0);
+  await handleInboundText(db, client, texts, { senderPhone: newcomer.phone, text: "Hi barter!" }, { expire: expiry.fn });
+  assert.equal(expiry.calls.length, 0);
+  await handleInboundText(db, client, texts, { senderPhone: newcomer.phone, text: "second text" }, { expire: expiry.fn });
+  assert.equal(expiry.calls.length, 1);
+  await handleInboundText(db, client, texts, { senderPhone: newcomer.phone, text: "third text" }, { expire: expiry.fn });
+  assert.equal(expiry.calls.length, 2);
+});
+
+test("an expire that throws doesn't stop routing", async () => {
+  const solo = await person(30, "SoloF");
+  const texts = messenger();
+  const expiry = fakeExpire({ throws: true });
+  await handleInboundText(db, client, texts, { senderPhone: solo.phone, text: "hello there" }, { expire: expiry.fn });
+  assert.equal(expiry.calls.length, 1);
+  assert.deepEqual(texts.sent, [{ phone: solo.phone, text: HELP_TEXT }]);
 });

@@ -1,9 +1,13 @@
-import type { Db, Document, MongoClient, WithId } from "mongodb";
+import type { Db, Document, MongoClient, ObjectId, WithId } from "mongodb";
 import { logAuthFailure } from "./auth-errors";
 import { InputError } from "./auth-validation";
 import { ALREADY_ANSWERED_TEXT, HELP_TEXT, NO_REQUESTS_TEXT, WELCOME_TEXT, acceptedTexts, bookingCode, declinedTexts, waitingListText } from "./booking-texts";
+import { expireStaleRequests } from "./booking-expiry";
+import { coordinate } from "./coordinator";
 import { exchangeCollections, type Booking } from "./exchange-schema";
 import { createExchangeService } from "./exchange-service";
+import type { Llm } from "./llm";
+import { logText } from "./text-log";
 import { enableTexts, type Messenger } from "./texting";
 
 export type Reply = { answer: "yes" | "no"; code?: string };
@@ -18,15 +22,39 @@ export function parseReply(text: string): Reply | null {
   return match[2] ? { answer, code: match[2].toUpperCase() } : { answer };
 }
 
+export type InboundDeps = { llm?: Llm | null; now?: Date; coordinate?: typeof coordinate; expire?: typeof expireStaleRequests };
+
+// Whether the sender (as provider) has a request still waiting for a YES/NO answer.
+const hasWaitingRequest = (db: Db, providerId: ObjectId) =>
+  exchangeCollections(db).bookings.findOne({ providerId, status: "requested" }, { projection: { _id: 1 } }).then(Boolean);
+// Whether the sender, as either side, has an accepted booking the assistant can coordinate.
+const hasActiveBooking = (db: Db, userId: ObjectId) =>
+  exchangeCollections(db).bookings.findOne({ status: "accepted", $or: [{ providerId: userId }, { requesterId: userId }] }, { projection: { _id: 1 } }).then(Boolean);
+
 // Handles one incoming text. Never throws: Photon won't retry after the webhook's 200, so failures are logged.
-export async function handleInboundText(db: Db, client: MongoClient, messenger: Messenger, { senderPhone, text }: { senderPhone: string; text: string }) {
+export async function handleInboundText(db: Db, client: MongoClient, messenger: Messenger, { senderPhone, text }: { senderPhone: string; text: string }, deps: InboundDeps = {}) {
   try {
     const user = await db.collection("user").findOne({ phoneNumber: senderPhone });
     if (!user) { logAuthFailure("Text from a number without a barter account"); return; }
     if (await enableTexts(db, senderPhone)) { await messenger.send(senderPhone, WELCOME_TEXT); return; }
+    const now = deps.now ?? new Date();
+    try {
+      await (deps.expire ?? expireStaleRequests)(db, client, messenger, now);
+    } catch (error) {
+      logAuthFailure("Request expiry", error);
+    }
+    try {
+      await logText(db, senderPhone, "person", text, now);
+    } catch (error) {
+      logAuthFailure("Text log", error);
+    }
     const reply = parseReply(text);
-    if (!reply) { await messenger.send(senderPhone, HELP_TEXT); return; }
-    await answer(db, client, messenger, user, reply);
+    if (reply && (reply.code || await hasWaitingRequest(db, user._id))) return answer(db, client, messenger, user, reply);
+    if (await hasActiveBooking(db, user._id)) {
+      return (deps.coordinate ?? coordinate)(db, messenger, deps.llm ?? null, { _id: user._id, firstName: String(user.firstName), phoneNumber: senderPhone }, text, now);
+    }
+    if (reply) return answer(db, client, messenger, user, reply);
+    return messenger.send(senderPhone, HELP_TEXT);
   } catch (error) {
     logAuthFailure("Incoming text", error);
   }
